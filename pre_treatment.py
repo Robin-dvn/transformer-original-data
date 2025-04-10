@@ -1,64 +1,9 @@
 import re
 import os
 import pandas as pd
+from sequences import terminal_fate
 
-def extract_sequences(input_file, output_file):
-    """
-    Extract all sequences from the input file and write them to the output file.
-    Each sequence is identified by a pattern ending with '# (number)' and consists
-    of lines of data in the format 'number number number ... number'.
-    """
-    with open(input_file, 'r') as f:
-        content = f.read()
-    pattern = r'((?:.|\n)*?)#\s*\(\d+\)'
-    blocks = re.findall(pattern, content)
-    print(f"Nombre de blocs trouvés : {len(blocks)}")
 
-    type_dict = {1:"LARGE",2:"MEDIUM"}
-    year_dict = {95:"Y1",96:"Y2",97:"Y3",98:"Y4",99:"Y5",}
-    sequence_data = []
-    for block in blocks:
-        # Split the block into individual series
-        # Using a regex to capture each 7-value group, handling line breaks with "\\"
-        series_pattern = re.compile(r'\d+(?:\s+\d+){6}')
-        series_list = series_pattern.findall(block)
-
-        if not series_list:
-            continue
-
-        # Take the first series to get the 2nd and 5th values (consistent in a sequence)
-        first_series = series_list[0].split()
-        print(series_list[0])
-        year = first_series[1]
-        # print(year) 
-        type_val = first_series[4]
-        sequence = ""
-        for series in series_list:
-            values = series.split()
-            # print(values)
-            sequence+= values[6]
-
-        sequence_data_line = {
-            'Year': year_dict.get(int(year), "UNKNOWN"),
-            'Type': type_dict.get(int(type_val), "UNKNOWN"),
-            'Sequence': sequence
-        }
-        sequence_data.append(sequence_data_line)   
-    
-    
-    df = pd.DataFrame(sequence_data)
-    
-    # Filtrer les séquences de longueur inférieure à 4
-    df_filtered = df[df['Sequence'].str.len() >= 4]
-    
-    # Afficher le nombre de séquences filtrées
-    filtered_count = len(df) - len(df_filtered)
-    if filtered_count > 0:
-        print(f"Suppression de {filtered_count} séquences trop courtes (longueur < 4)")
-    
-    df_filtered.to_csv(output_file, sep='\t', index=False)
-            
-    return len(df_filtered)  # Return the number of sequences extracted after filtering
 
 def extract_sequences_to_df(input_file):
     """
@@ -88,12 +33,12 @@ def extract_sequences_to_df(input_file):
         for series in series_list:
             values = series.split()
             sequence += values[6]
-
+            
         sequence_data_line = {
-            'Year': year_dict.get(int(year), "UNKNOWN"),
-            'Type': type_dict.get(int(type_val), "UNKNOWN"),
+            'Observation': type_dict.get(int(type_val), "UNKNOWN"),
+            'Year': year_dict.get(int(year), "UNKNOWN"), 
             'Sequence': sequence,
-            'Source': os.path.basename(input_file)  # Ajout de la source du fichier
+            'Terminal Fate': terminal_fate(int(year),type_dict.get(int(type_val),"UNKNOWN")),  # Ajout de la colonne "Terminal Fate"
         }
         sequence_data.append(sequence_data_line)
     
@@ -108,7 +53,7 @@ def extract_sequences_to_df(input_file):
         
     return df_filtered
 
-def process_all_seq_files(directory='.'):
+def process_all_seq_files(directory='data'):
     """
     Traite tous les fichiers .seq dans le répertoire spécifié et
     combine toutes les séquences extraites dans un seul fichier CSV.
@@ -139,15 +84,11 @@ def process_all_seq_files(directory='.'):
         except Exception as e:
             print(f"Erreur lors du traitement de {seq_file}: {str(e)}")
     
-    # Créer un répertoire 'output' s'il n'existe pas
-    output_dir = os.path.join(directory, 'output')
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"Répertoire de sortie créé: {output_dir}")
+
     
     # Sauvegarder toutes les séquences dans un seul fichier CSV
-    output_file = os.path.join(output_dir, "all_sequences.csv")
-    all_sequences_df.to_csv(output_file, sep='\t', index=False)
+    output_file = "data/all_sequences.csv"
+    all_sequences_df.to_csv(output_file, index=False)
     
     print(f"\nRésumé: {total_sequences} séquences extraites de {processed_files} fichiers.")
     print(f"Toutes les séquences ont été sauvegardées dans {output_file}")

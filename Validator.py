@@ -1,0 +1,1252 @@
+import torch
+import pandas as pd
+from transformer import TransformerDecoderOnly
+from tqdm import tqdm
+import plotly.express as px
+from scipy.stats import gaussian_kde
+from scipy.spatial.distance import jensenshannon
+from HSMM import HSMM
+import numpy as np
+import plotly.graph_objects as go
+import json
+import os
+from datetime import datetime
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from pathlib import Path  # si besoin d'utiliser pathlib ailleurs
+import subprocess
+from time import time
+class Validator: 
+    """
+    Classe Validator pour valider et analyser des séquences générées par un modèle Transformer.
+
+    Attributs:
+        model (Transformer): Instance du modèle Transformer utilisé pour générer des séquences.
+        device (str): Dispositif sur lequel les calculs sont effectués (CPU ou GPU).
+        datapath (str): Chemin vers le fichier de données de référence.
+        token_to_id (dict): Dictionnaire mappant des tokens à leurs identifiants numériques.
+        id_to_token (dict): Dictionnaire inverse mappant des identifiants numériques à leurs tokens.
+        stats (dict): Dictionnaire stockant diverses statistiques calculées lors des validations.
+        show (bool): Booléen indiquant si les graphiques doivent être affichés lors de leur création.
+        df (pd.DataFrame): DataFrame pandas contenant les données de référence ou générées.
+        simu_folder (str): Dossier où les figures générées sont sauvegardées.
+    """
+    def __init__(self, model=None, device=None, token_to_id=None, validation_folder_path=None, datapath=None, show=False):
+        """
+        Initialise le validateur avec un modèle, un dispositif, et un mappage de tokens.
+
+        Args:
+            model (Transformer, optional): Modèle Transformer utilisé pour générer des séquences.
+            device (str, optional): Dispositif sur lequel les calculs sont effectués (CPU ou GPU).
+            token_to_id (dict, optional): Dictionnaire mappant des tokens à leurs identifiants numériques.
+            validation_folder_path (str, optional): Chemin vers le dossier de validation.
+            datapath (str, optional): Chemin vers le fichier de données de référence.
+            show (bool, optional): Indique si les graphiques doivent être affichés.
+        """
+        self.model = model
+        self.device = device
+        self.datapath = datapath
+        self.validation_folder_path = validation_folder_path
+        self.token_to_id = token_to_id
+        self.id_to_token = {v: k for k, v in token_to_id.items()} if token_to_id else None
+        self.stats = {}
+        self.show = show
+        self.df = pd.DataFrame(columns=["Observation", "Year", "Sequence", "Terminal Fate"])
+        
+    def save_figure(self, fig, validation_type, observation, year):
+        """
+        Sauvegarde une figure dans le dossier de simulation.
+
+        Args:
+            fig (plotly.graph_objs._figure.Figure): Figure à sauvegarder.
+            validation_type (str): Type de validation (utilisé pour le nom du fichier).
+            observation (str): Observation associée à la figure.
+            year (int): Année associée à la figure.
+        """
+        if self.validation_folder_path is None:
+            raise ValueError("Le chemin du dossier de validation doit être initialisé pour sauvegarder des figures")
+            
+        folder_path = self.validation_folder_path / "assets" / validation_type
+        os.makedirs(folder_path, exist_ok=True)
+        file_path = folder_path / f"{observation}_{year}_{validation_type}.png"
+        fig.write_image(file_path)
+    
+    def generate_data(self, nb_samples, output_path, end_toks_list):
+        """
+        Génère des données en utilisant le modèle Transformer.
+
+        Args:
+            nb_samples (int): Nombre d'échantillons à générer par couple (type,année).
+            output_path (str): Chemin où sauvegarder les données générées.
+            end_toks_list (list): Liste des tokens de fin.
+        """
+        if self.model is None or self.device is None:
+            raise ValueError("Le modèle et le device doivent être initialisés pour générer des données")
+        
+        if self.token_to_id is None:
+            raise ValueError("Le dictionnaire token_to_id doit être initialisé pour générer des données")
+
+        sequences_generees = []
+        decoder_only = True
+        for type in tqdm(range(9, 11)):
+            for year in range(12, 17):
+                
+                if nb_samples > 1000:
+                    for i in range(0, nb_samples, 1000):
+                        batch_size = min(1000, nb_samples - i )
+                        start_seq = torch.tensor([[type, year]] * batch_size, device=self.device)
+
+                        generated_seq = self.model.generate_batch(start_seq, 1, self.device, end_toks_list, batch_size=int(batch_size))
+                        if not decoder_only:
+                          sequences_generees.extend(torch.cat((start_seq, generated_seq[:, 1:]), dim=1).to('cpu').tolist())
+                        else:
+                          sequences_generees.extend(torch.cat((start_seq, generated_seq[:, 3:]), dim=1).to('cpu').tolist())
+                else:
+                    start_seq = torch.tensor([[type, year]] * nb_samples, device=self.device)
+
+                    generated_seq = self.model.generate_batch(start_seq, 1, self.device, end_toks_list, batch_size=nb_samples)
+                    if not decoder_only:
+                      sequences_generees.extend(torch.cat((start_seq, generated_seq[:, 1:]), dim=1).to('cpu').tolist())
+                    else:
+                      sequences_generees.extend(torch.cat((start_seq, generated_seq[:, 3:]), dim=1).to('cpu').tolist())
+
+      
+        print(f"[INFO] Generated {len(sequences_generees)} sequences")
+        print(f"[INFO] converting to dataset: ")
+        data_generated = []
+        for seq in tqdm(sequences_generees):
+            datasetform = []
+            digits = ""
+
+            for item in seq:
+
+                if item in self.id_to_token:
+
+                    if self.id_to_token[item].isdigit():
+                        digits += self.id_to_token[item]
+                        continue
+ 
+                    if digits != "":
+                        datasetform.append(digits)
+                    datasetform.append(self.id_to_token[item])
+                    digits = ""
+
+                    if item in end_toks_list and len(datasetform) !=1:
+                        break   
+            data_generated.append(datasetform)
+
+        self.df = pd.DataFrame(data_generated, columns=["Observation", "Year", "Sequence", "Terminal Fate"])
+        print(f"[INFO] Saving to {output_path}")
+        self.df.to_csv(output_path, index=False)
+
+
+    def load_data(self, data_path=None):
+        """
+        Charge les données à partir d'un fichier CSV.
+
+        Args:
+            data_path (str, optional): Chemin vers le fichier de données.
+        """
+        if data_path is None and self.datapath is None:
+            raise ValueError("Aucun chemin de données n'a été fourni")
+        
+        self.datapath = data_path or self.datapath
+        self.df = pd.read_csv(self.datapath)
+        
+
+
+    def markov_model_validation(self,generated_dataset_path):
+        """
+        Valide les séquences générées en comparant les distributions des états terminaux avec celles du dataset original.
+
+        Args:
+            generated_dataset_path (str): Chemin vers le fichier CSV des données générées.
+        """
+
+        dataset = self.df
+        generated_dataset = pd.read_csv(generated_dataset_path)
+
+        # assert len(dataset) == len(generated_dataset), "Datasets have different lengths"
+        
+        # Ajouter une colonne 'Source' pour indiquer la provenance des données
+        dataset['Source'] = 'Dataset'
+        generated_dataset['Source'] = 'Generated Dataset'
+
+        # Combiner les deux datasets
+        combined_dataset = pd.concat([dataset, generated_dataset])
+
+        # Obtenir les couples uniques (Observation, Year)
+        unique_pairs = combined_dataset[['Observation', 'Year']].drop_duplicates()
+
+        for _, row in unique_pairs.iterrows():
+            observation = row['Observation']
+            year = row['Year']
+
+            # Filtrer les données pour le couple actuel
+            subset = combined_dataset[(combined_dataset['Observation'] == observation) & (combined_dataset['Year'] == year)]
+
+            # Compter les occurrences de Terminal Fate pour chaque source
+            counts = subset.groupby(['Terminal Fate', 'Source']).size().reset_index(name='Count')
+            
+            # Créer un DataFrame avec toutes les combinaisons possibles de Terminal Fate et Source
+            all_combinations = pd.MultiIndex.from_product([counts['Terminal Fate'].unique(), ['Dataset', 'Generated Dataset']], names=['Terminal Fate', 'Source']).to_frame(index=False)
+
+            # Fusionner avec le DataFrame counts pour ajouter les combinaisons manquantes
+            counts = all_combinations.merge(counts, on=['Terminal Fate', 'Source'], how='left').fillna(1) 
+
+
+            
+            # Calculer l'erreur en pourcentage pour chaque Terminal Fate
+            terminal_fates = counts['Terminal Fate'].unique()
+            percentage_errors = {}
+            total_bad_fate = 0
+            for fate in terminal_fates:
+                dataset_count = counts[(counts['Terminal Fate'] == fate) & (counts['Source'] == 'Dataset')]['Count'].values[0]
+                generated_count = counts[(counts['Terminal Fate'] == fate) & (counts['Source'] == 'Generated Dataset')]['Count'].values[0]
+                if abs(dataset_count - generated_count) >0:
+                    total_bad_fate += abs(dataset_count - generated_count)
+            percentage_error =  total_bad_fate/ 10000 * 100
+  
+
+            # Mettre à jour le dictionnaire stats
+            self.stats[(observation, year)] = {
+                "percentage_error": percentage_error
+            } if (observation, year) not in self.stats else self.stats[(observation, year)].update({
+                "percentage_error": percentage_error
+            })
+            # print(self.stats)
+            # Créer le graphique avec des couleurs explicites
+            fig = px.bar(counts, x='Terminal Fate', y='Count', color='Source', barmode='group',
+                        title=f'Comparison of Terminal Fate for {observation} in {year}',
+                        color_discrete_map={'Dataset': 'green', 'Generated Dataset': 'blue'})
+            if self.show: fig.show()
+            fig.update_layout(
+                title_text=f'Terminal fates for {observation} in {year}',
+                height=800,
+                width=1200,
+                margin=dict(t=100, b=100, l=50, r=50)
+            )
+            
+            self.save_figure(fig, "markov_model_validation", observation, year)
+
+    def sequence_length_validation(self, generated_dataset_path):
+        """
+        Compare la longueur des séquences générées avec celles du dataset original.
+
+        Args:
+            generated_dataset_path (str): Chemin vers le fichier CSV des données générées.
+        """
+        
+
+        dataset = self.df
+        generated_dataset = pd.read_csv(generated_dataset_path)
+
+        dataset['Source'] = 'Dataset'
+        generated_dataset['Source'] = 'Generated Dataset'
+        combined_dataset = pd.concat([dataset, generated_dataset])
+        unique_pairs = combined_dataset[['Observation', 'Year']].drop_duplicates()
+
+        for _, row in unique_pairs.iterrows():
+            observation = row['Observation']
+            year = row['Year']
+            subset = combined_dataset[(combined_dataset['Observation'] == observation) &
+                                    (combined_dataset['Year'] == year)].copy()
+            subset['Sequence Length'] = subset['Sequence'].apply(len)
+            stats = subset.groupby('Source')['Sequence Length'].agg(['mean', 'std']).reset_index()
+
+            mean_error = abs(stats.loc[stats['Source'] == 'Dataset', 'mean'].values[0] -
+                            stats.loc[stats['Source'] == 'Generated Dataset', 'mean'].values[0])
+            std_error = abs(stats.loc[stats['Source'] == 'Dataset', 'std'].values[0] -
+                            stats.loc[stats['Source'] == 'Generated Dataset', 'std'].values[0])
+            self.stats[(observation, year)]["mean_error"] = mean_error
+            self.stats[(observation, year)]["std_error"] = std_error 
+
+            y_max = stats['mean'].max() + 10 * stats['std'].max()
+            y_min = stats['mean'].min() - 10 * stats['std'].max()
+
+            # On retire les annotations sur les points en n'utilisant pas le paramètre 'text'
+            fig = px.scatter(stats, x='Source', y='mean', error_y='std',
+                            title=f'Sequence Length Comparison for {observation} in {year}',
+                            labels={'mean': 'Average Sequence Length', 'std': 'Standard Deviation'},
+                            color='Source',
+                            color_discrete_map={'Dataset': 'green', 'Generated Dataset': 'blue'},
+                            size_max=10)
+            fig.update_traces(marker=dict(size=12, opacity=0.8), error_y=dict(width=5))
+            fig.update_yaxes(range=[y_min, y_max])
+            fig.update_xaxes(range=[-1, 2])
+
+            # Positionner la légende à droite et agrandir la marge droite pour faire de la place
+            fig.update_layout(
+                legend=dict(x=1.02, y=1, font=dict(size=12)),
+                margin=dict(l=50, r=200, t=50, b=50)
+            )
+            # Combiner les stats dans une annotation unique formatée avec des retours à la ligne
+            annotation_text = (
+                f"Dataset<br>Mean: {stats.loc[stats['Source']=='Dataset', 'mean'].values[0]:.2f}<br>"
+                f"Std: {stats.loc[stats['Source']=='Dataset', 'std'].values[0]:.2f}<br><br>"
+                f"Generated Dataset<br>Mean: {stats.loc[stats['Source']=='Generated Dataset', 'mean'].values[0]:.2f}<br>"
+                f"Std: {stats.loc[stats['Source']=='Generated Dataset', 'std'].values[0]:.2f}"
+            )
+
+            # Placer l'annotation en bas à droite du graph
+            fig.update_layout(
+                annotations=[
+                    dict(
+                        x=0.98, y=0.02, xref='paper', yref='paper',
+                        text=annotation_text,
+                        showarrow=False, font=dict(size=12),
+                        xanchor='right', yanchor='bottom'
+                    )
+                ]
+            )
+
+            if self.show: fig.show()
+            fig.update_layout(
+                title_text=f'Sequence length for {observation} in {year}',
+                height=800,
+                width=1200,
+                margin=dict(t=100, b=100, l=50, r=50)
+            )
+            self.save_figure(fig, "sequence_length_validation", observation, year)
+
+    def sequence_length_distribution_validation(self, generated_dataset_path):
+        """
+        Analyse la distribution des longueurs de séquences en utilisant des histogrammes et la distance de Jensen-Shannon.
+
+        Args:
+            generated_dataset_path (str): Chemin vers le fichier CSV des données générées.
+        """
+        dataset = self.df
+        generated_dataset = pd.read_csv(generated_dataset_path)
+
+        dataset['Source'] = 'Dataset'
+        generated_dataset['Source'] = 'Generated Dataset'
+        combined_dataset = pd.concat([dataset, generated_dataset])
+        unique_pairs = combined_dataset[['Observation', 'Year']].drop_duplicates()
+
+        for _, row in unique_pairs.iterrows():
+            observation = row['Observation']
+            year = row['Year']
+            subset = combined_dataset[(combined_dataset['Observation'] == observation) &
+                                    (combined_dataset['Year'] == year)].copy()
+            subset['Sequence Length'] = subset['Sequence'].apply(len)
+
+            # Calcul de la distance de Jensen-Shannon pour les longueurs de séquences
+            dataset_lengths = subset[subset['Source'] == 'Dataset']['Sequence Length'].values
+            generated_lengths = subset[subset['Source'] == 'Generated Dataset']['Sequence Length'].values
+
+            # Vérifier si toutes les séquences ont la même taille
+            if len(np.unique(dataset_lengths)) == 1 and len(np.unique(generated_lengths)) == 1:
+                # Si toutes les séquences ont la même taille, pas besoin de plot et JS distance = 0 ou 1
+                js_distance = 0 if np.unique(dataset_lengths)[0] == np.unique(generated_lengths)[0] else 1
+                self.stats[(observation, year)]["sequence_length_js_distance"] = js_distance
+                print(f"[INFO] Toutes les séquences ont la même taille pour {observation} en {year}. JS distance = {js_distance}")
+                continue
+
+            try:
+                # Calcul des KDE pour les deux distributions
+                min_length = min(min(dataset_lengths), min(generated_lengths))
+                max_length = max(max(dataset_lengths), max(generated_lengths))
+                x = np.linspace(min_length, max_length, 2000)  # Plus de points pour une meilleure résolution
+                
+                kde_dataset = gaussian_kde(dataset_lengths, bw_method=0.5)
+                kde_generated = gaussian_kde(generated_lengths, bw_method=0.5)
+                
+                # Calcul des valeurs KDE
+                P = kde_dataset(x)
+                Q = kde_generated(x)
+                
+                # Normalisation pour la distance de Jensen-Shannon
+                dx = (max_length - min_length) / (len(x) - 1)
+                P_norm = P / np.sum(P * dx)
+                Q_norm = Q / np.sum(Q * dx)
+                
+                # Calcul de la distance de Jensen-Shannon
+                js_distance = jensenshannon(P_norm, Q_norm)
+                self.stats[(observation, year)]["sequence_length_js_distance"] = js_distance
+
+                # Création de l'histogramme avec Plotly
+                fig = go.Figure()
+                
+                # Nombre de bins égal à la longueur maximale des séquences
+                nbins = int(max_length - min_length + 1)
+                
+                # Ajout des histogrammes avec nombre de bins adapté et normalisation en densité
+                fig.add_trace(go.Histogram(
+                    x=dataset_lengths,
+                    name='Dataset',
+                    marker_color='green',
+                    opacity=0.5,
+                    nbinsx=nbins,  # Nombre de bins égal à la plage de longueurs
+                    histnorm='probability density'  # Normalisation en densité
+                ))
+                fig.add_trace(go.Histogram(
+                    x=generated_lengths,
+                    name='Generated Dataset',
+                    marker_color='blue',
+                    opacity=0.5,
+                    nbinsx=nbins,  # Nombre de bins égal à la plage de longueurs
+                    histnorm='probability density'  # Normalisation en densité
+                ))
+
+                # Ajout des courbes KDE (déjà normalisées)
+                fig.add_trace(go.Scatter(
+                    x=x, y=P_norm,
+                    mode='lines',
+                    name='KDE Dataset',
+                    line=dict(color='green', width=2)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=x, y=Q_norm,
+                    mode='lines',
+                    name='KDE Generated',
+                    line=dict(color='blue', width=2)
+                ))
+
+                # Ajout de la distance de Jensen-Shannon
+                fig.add_annotation(
+                    x=0.95, y=0.95, xref="paper", yref="paper",
+                    text=f"Jensen-Shannon Distance: {js_distance:.4f}",
+                    showarrow=False,
+                    bordercolor="black",
+                    borderwidth=1,
+                    borderpad=4,
+                    bgcolor="white",
+                    opacity=0.8
+                )
+
+                fig.update_layout(
+                    title=f"Distribution des longueurs de séquences pour {observation} en {year}",
+                    xaxis_title="Longueur de séquence",
+                    yaxis_title="Nombre de séquences",
+                    barmode='overlay',
+                    height=800,
+                    width=1200,
+                    margin=dict(t=100, b=100, l=50, r=50)
+                )
+
+                if self.show: fig.show()
+                self.save_figure(fig, "sequence_length_distribution", observation, year)
+            except Exception as e:
+                print(f"[WARNING] Erreur lors du calcul de la distribution pour {observation} en {year}: {str(e)}")
+                self.stats[(observation, year)]["sequence_length_js_distance"] = 1  # Cas le plus défavorable
+                continue
+
+    def sequence_digit_stats(self, generated_dataset_path):
+        """
+        Analyse les statistiques des chiffres dans les séquences générées et les compare avec le dataset original.
+
+        Args:
+            generated_dataset_path (str): Chemin vers le fichier CSV des données générées.
+        """
+
+
+        # Préparation des données
+        dataset = self.df.copy()
+        generated_dataset = pd.read_csv(generated_dataset_path)
+        dataset['Source'] = 'Dataset'
+        generated_dataset['Source'] = 'Generated Dataset'
+        combined_dataset = pd.concat([dataset, generated_dataset])
+        unique_pairs = combined_dataset[['Observation', 'Year']].drop_duplicates()
+
+        for _, row in unique_pairs.iterrows():
+            observation = row['Observation']
+            year = row['Year']
+            subset = combined_dataset[(combined_dataset['Observation'] == observation) &
+                                    (combined_dataset['Year'] == year)].copy()
+            ds_subset = subset[subset['Source'] == 'Dataset']
+            gen_subset = subset[subset['Source'] == 'Generated Dataset']
+
+            # Comptage des occurrences de chiffres (0 à 4)
+            count_digits = lambda seq: pd.Series([int(ch) for ch in seq if ch.isdigit() and int(ch) <= 4]).value_counts()
+            ds_counts = ds_subset['Sequence'].apply(count_digits).fillna(0).reindex(columns=range(5), fill_value=0)
+            gen_counts = gen_subset['Sequence'].apply(count_digits).fillna(0).reindex(columns=range(5), fill_value=0)
+
+            # Moyennes et variances par chiffre
+            ds_mean = ds_counts.mean()
+            ds_var = ds_counts.var()
+            gen_mean = gen_counts.mean()
+            gen_var = gen_counts.var()
+
+            # Calcul des erreurs
+            mean_errors = abs(ds_mean - gen_mean)
+            var_errors = abs(ds_var - gen_var)
+
+            # Mise à jour de self.stats
+            key = (observation, year)
+            self.stats[key]["digit_mean_errors"] = mean_errors.to_dict() 
+            self.stats[key]["digit_std_errors"] = var_errors.to_dict()
+
+
+            # Construction d'un DataFrame de stats et calcul des erreurs par ligne
+            stats_df = pd.DataFrame({
+                'Digit': ds_mean.index,
+                'Dataset Mean': ds_mean.values,
+                'Dataset Var': ds_var.values,
+                'Generated Mean': gen_mean.values,
+                'Generated Var': gen_var.values
+            }).set_index('Digit')
+            stats_df['Mean Error'] = abs(stats_df['Dataset Mean'] - stats_df['Generated Mean'])
+            stats_df['Var Error'] = abs(stats_df['Dataset Var'] - stats_df['Generated Var'])
+            table_df = stats_df.reset_index()
+
+            # Préparation des données pour le scatter plot
+            plot_data = pd.DataFrame({
+                'Digit': list(ds_mean.index) * 2,
+                'Mean': list(ds_mean.values) + list(gen_mean.values),
+                'Variance': list(ds_var.values) + list(gen_var.values),
+                'Source': ['Dataset'] * len(ds_mean) + ['Generated Dataset'] * len(gen_mean),
+                'text': ([f"Mean: {m:.2f}<br>Var: {v:.2f}" for m, v in zip(ds_mean.values, ds_var.values)] +
+                        [f"Mean: {m:.2f}<br>Var: {v:.2f}" for m, v in zip(gen_mean.values, gen_var.values)])
+            })
+            y_max = plot_data['Mean'].max() + 10 * plot_data['Variance'].max()
+            y_min = plot_data['Mean'].min() - 10 * plot_data['Variance'].max()
+
+            # Création du scatter plot avec Plotly Express
+            fig_scatter = px.scatter(plot_data, x='Digit', y='Mean', error_y='Variance',
+                                    title=f'Digit Occurrence Stats for {observation} in {year}',
+                                    labels={'Mean': 'Average Occurrence', 'Variance': 'Variance'},
+                                    color='Source',
+                                    color_discrete_map={'Dataset': 'green', 'Generated Dataset': 'blue'},
+                                    size_max=10)
+            fig_scatter.update_traces(marker=dict(size=12, opacity=0.8), error_y=dict(width=5))
+
+            fig_scatter.update_yaxes(range=[y_min, y_max])
+
+            # Préparation du tableau des annotations (une ligne par chiffre)
+            # Colonnes: Digit, Dataset Mean, Generated Mean, Mean Error, Dataset Var, Generated Var, Var Error
+            table_header = ["Digit", "Dataset Mean", "Generated Mean", "Mean Error", "Dataset Var", "Generated Var", "Var Error"]
+            annotation_rows = [
+                [digit,
+                f"{row['Dataset Mean']:.2f}",
+                f"{row['Generated Mean']:.2f}",
+                f"{row['Mean Error']:.2f}",
+                f"{row['Dataset Var']:.2f}",
+                f"{row['Generated Var']:.2f}",
+                f"{row['Var Error']:.2f}"]
+                for digit, row in stats_df.iterrows()
+            ]
+            table_trace = go.Table(
+                header=dict(values=table_header, fill_color='paleturquoise', align='left'),
+                cells=dict(values=list(zip(*annotation_rows)), fill_color='lavender', align='left')
+            )
+
+            # Création d'une figure en deux parties (graph + tableau)
+            fig = make_subplots(rows=2, cols=1,
+                                row_heights=[0.7, 0.3],
+                                vertical_spacing=0.1,
+                                specs=[[{"type": "xy"}],
+                                    [{"type": "table"}]])
+            for trace in fig_scatter.data:
+                fig.add_trace(trace, row=1, col=1)
+            fig.add_trace(table_trace, row=2, col=1)
+            fig.update_layout(title_text=f'Digit Occurrence Stats and Annotations for {observation} in {year}')
+            if self.show: fig.show()        
+            # Définir une hauteur explicite pour que le tableau soit entièrement visible
+            fig.update_layout(
+                title_text=f'Digit Occurrence Stats & Details for {observation} in {year}',
+                height=800,
+                width=1200,
+                margin=dict(t=100, b=100, l=50, r=50)
+            )
+
+            self.save_figure(fig, "sequence_digit_stats", observation, year)
+
+
+    def log_prob_distribution_of_sequences(self,generated_dataset_path,from_csv = False):
+        """
+        Analyse la distribution des log-probabilités des séquences générées et les compare avec le dataset original.
+
+        Args:
+            generated_dataset_path (str): Chemin vers le fichier CSV des données générées.
+        """
+
+                
+        def analyze_sequences_from_csv(dataset_path, generated_dataset_path, year, type):
+            if year == 1 or year ==2:
+                if type == "long":
+                    toml_file = f"data/markov/fuji_{type}_year_1.toml"
+                else:
+                    toml_file = f"data/markov/fuji_{type}_year_3.toml"
+            else:
+                toml_file = f"data/markov/fuji_{type}_year_{year}.toml"
+
+            hsmm_model = HSMM(toml_file)
+            dic = {"long": "LARGE", "medium": "MEDIUM"}
+
+            def process_file(file):
+                df = pd.read_csv(file)
+
+                filtered_df = df[(df["Observation"] == dic[type]) & (df["Year"] == f"Y{year}")]
+                probabilities = []
+                # print(filtered_df)
+                for sequence in tqdm(filtered_df["Sequence"]):
+                    # print(sequence)
+                    observations = [int(x) for x in str(sequence)]
+                    prob_O = hsmm_model.forward_algorithm(observations)
+                    probabilities.append(prob_O)
+                log_probabilities = np.log(probabilities)
+                return log_probabilities
+            if not from_csv:
+                log_probabilities_dataset = process_file(dataset_path)
+                log_probabilities_generated = process_file(generated_dataset_path)
+            else:
+                log_prob_df = pd.read_csv(self.validation_folder_path / f"probs/log_prob_markov_python_dataset_{type}_y{year}.csv")
+                log_probabilities_dataset = log_prob_df["LogProb"].tolist()
+                log_prob_generated_df = pd.read_csv(self.validation_folder_path / f"probs/log_generated_dataset_{type}_y{year}.csv")
+                log_probabilities_generated = log_prob_generated_df["LogProb"].tolist()
+
+            min_log_prob = min(min(log_probabilities_dataset), min(log_probabilities_generated))
+            max_log_prob = max(max(log_probabilities_dataset), max(log_probabilities_generated))
+            bin_width = (max_log_prob - min_log_prob) / 1000
+            xbins = go.histogram.XBins(start=min_log_prob, end=max_log_prob, size=bin_width)
+
+            fig = go.Figure()
+            fig.add_trace(go.Histogram(
+                x=log_probabilities_dataset, xbins=xbins,
+                name='Original', marker_color='green', opacity=0.5))
+            fig.add_trace(go.Histogram(
+                x=log_probabilities_generated, xbins=xbins,
+                name='Générée', marker_color='blue', opacity=0.5))
+
+            kde_dataset = gaussian_kde(log_probabilities_dataset,bw_method=0.05)
+            kde_generated = gaussian_kde(log_probabilities_generated,bw_method=0.05)
+            x = np.linspace(min_log_prob, max_log_prob, 1000)
+            # Mise à l'échelle des KDE pour qu'ils correspondent aux comptes des histogrammes
+            kde_dataset_values = kde_dataset(x) * len(log_probabilities_dataset) * bin_width
+            kde_generated_values = kde_generated(x) * len(log_probabilities_generated) * bin_width
+
+            fig.add_trace(go.Scatter(
+                x=x, y=kde_dataset_values, mode='lines',
+                name='KDE File 1', line=dict(color='green', width=2)))
+            fig.add_trace(go.Scatter(
+                x=x, y=kde_generated_values, mode='lines',
+                name='KDE File 2', line=dict(color='blue', width=2)
+            ))
+
+            # Pour la mesure de similarité, on normalise les KDE en distributions de probabilité
+            dx = (max_log_prob - min_log_prob) / (len(x) - 1)
+            P = kde_dataset(x)
+            Q = kde_generated(x)
+            P_norm = P / np.sum(P * dx)
+            Q_norm = Q / np.sum(Q * dx)
+            
+            # Calcul de la distance de Jensen-Shannon
+            js_distance = jensenshannon(P_norm, Q_norm)
+            
+            # Affichage du résultat sur le graphique dans un encart
+            fig.add_annotation(
+                x=0.95, y=0.95, xref="paper", yref="paper",
+                text=f"Jensen-Shannon Distance: {js_distance:.4f}",
+                showarrow=False,
+                bordercolor="black",
+                borderwidth=1,
+                borderpad=4,
+                bgcolor="white",
+                opacity=0.8
+            )
+            fig.update_layout(
+                title=f"Distribution des log-probabilités pour l'observation {dic[type]} en Y{year}",
+                xaxis_title="Log-Probabilité de la séquence",
+                yaxis_title="Nombre de séquences",
+                barmode='overlay'
+            )
+
+
+            if self.show: fig.show()
+            fig.update_layout(
+                title_text=f"Distribution des log-probabilités pour l'observation {dic[type]} en Y{year}",
+                height=800,
+                width=1200,
+                margin=dict(t=100, b=100, l=50, r=50)
+            )
+            self.save_figure(fig, "log_prob_distribution_of_sequences", type, year)
+            return js_distance
+        
+        
+        for year in range(1, 6):
+            for type in ["long", "medium"]:
+                js_distance = analyze_sequences_from_csv(self.datapath, generated_dataset_path, year, type)
+                key = ("LARGE",f"Y{year}") if type == "long" else ("MEDIUM",f"Y{year}")
+                if key not in self.stats:
+
+                    self.stats[key] = {
+                        "js_distance": js_distance
+                    }
+                else:
+                    self.stats[key]["js_distance"] = js_distance 
+
+    
+    def compute_metrics(self,data):
+        # Pour chaque dataset, on accumule les valeurs
+        mean_errors = []
+        std_errors = []
+        percentage_errors = []
+        js_distances = []
+        digit_mean_vals = []
+        digit_std_vals = []
+        rmse_errors = []
+        sequence_length_js_distances = []
+        val_losses = []
+        final_val_loss = None
+        series_count_errors = {i: [] for i in range(5)}  # Pour chaque chiffre
+        series_mean_errors = {i: [] for i in range(5)}   # Pour chaque chiffre
+        series_std_errors = {i: [] for i in range(5)}    # Pour chaque chiffre
+        num_params = None
+        
+        # Récupérer la final_val_loss et le nombre de paramètres au niveau parent si ils existent
+        if 'final_val' in data:
+            final_val_loss = data['final_val']
+# On la retire pour ne pas la traiter dans la boucle
+        if 'num_params' in data:
+            num_params = data['num_params']
+
+        
+        # Traiter les métriques de couple
+        for key, d in data.items():
+            if key in ['final_val', 'num_params']:  # On ignore ces clés car déjà traitées
+                continue
+            # print(d)
+            mean_errors.append(d["mean_error"])
+            std_errors.append(d["std_error"])
+            percentage_errors.append(d["percentage_error"])
+            if "js_distance" in d:
+                js_distances.append(d["js_distance"])
+            digit_mean_vals.extend(d["digit_mean_errors"].values())
+            digit_std_vals.extend(d["digit_std_errors"].values())
+            if "rmse_error" in d:
+                rmse_errors.append(d["rmse_error"])
+            if "sequence_length_js_distance" in d:
+                sequence_length_js_distances.append(d["sequence_length_js_distance"])
+            
+            # Collecter les erreurs de séries pour chaque chiffre
+            for digit in range(5):
+                if f"digit_{digit}_series_count_error" in d:
+                    series_count_errors[digit].append(d[f"digit_{digit}_series_count_error"])
+                if f"digit_{digit}_series_mean_error" in d:
+                    series_mean_errors[digit].append(d[f"digit_{digit}_series_mean_error"])
+                if f"digit_{digit}_series_std_error" in d:
+                    series_std_errors[digit].append(d[f"digit_{digit}_series_std_error"])
+
+        # Calculer les métriques globales pour toutes les séries
+        series_metrics = {}
+        all_series_count_errors = []
+        all_series_mean_errors = []
+        all_series_std_errors = []
+        
+        for digit in range(5):
+            if series_count_errors[digit] and series_mean_errors[digit] and series_std_errors[digit]:
+                series_metrics[f"digit_{digit}_series_count_error"] = (np.mean(series_count_errors[digit]), np.std(series_count_errors[digit]))
+                series_metrics[f"digit_{digit}_series_mean_error"] = (np.mean(series_mean_errors[digit]), np.std(series_mean_errors[digit]))
+                series_metrics[f"digit_{digit}_series_std_error"] = (np.mean(series_std_errors[digit]), np.std(series_std_errors[digit]))
+                all_series_count_errors.extend(series_count_errors[digit])
+                all_series_mean_errors.extend(series_mean_errors[digit])
+                all_series_std_errors.extend(series_std_errors[digit])
+            else:
+                series_metrics[f"digit_{digit}_series_count_error"] = (None, None)
+                series_metrics[f"digit_{digit}_series_mean_error"] = (None, None)
+                series_metrics[f"digit_{digit}_series_std_error"] = (None, None)
+        
+        # Calculer les métriques globales pour toutes les séries
+        if all_series_count_errors and all_series_mean_errors and all_series_std_errors:
+            series_metrics["series_count_error"] = (np.mean(all_series_count_errors), np.std(all_series_count_errors))
+            series_metrics["series_mean_error"] = (np.mean(all_series_mean_errors), np.std(all_series_mean_errors))
+            series_metrics["series_std_error"] = (np.mean(all_series_std_errors), np.std(all_series_std_errors))
+        else:
+            series_metrics["series_count_error"] = (None, None)
+            series_metrics["series_mean_error"] = (None, None)
+            series_metrics["series_std_error"] = (None, None)
+
+        metrics = {
+            "mean_error": (np.mean(mean_errors), np.std(mean_errors)),
+            "std_error": (np.mean(std_errors), np.std(std_errors)),
+            "percentage_error": (np.mean(percentage_errors), np.std(percentage_errors)),
+            "js_distance": (np.mean(js_distances), np.std(js_distances)) if js_distances else (None, None),
+            "digit_mean_errors": (np.mean(digit_mean_vals), np.std(digit_mean_vals)),
+            "digit_std_errors": (np.mean(digit_std_vals), np.std(digit_std_vals)),
+            "rmse_error": (np.mean(rmse_errors), np.std(rmse_errors)) if len(rmse_errors) >= 8 else (None, None),
+            "sequence_length_js_distance": (np.mean(sequence_length_js_distances), np.std(sequence_length_js_distances)) if sequence_length_js_distances else (None, None),
+            "final_val_loss": (final_val_loss, None) if final_val_loss is not None else (None, None),
+            "num_params": (num_params, None) if num_params is not None else (None, None),
+            **series_metrics  # Ajouter les métriques de séries
+        }
+        # print(metrics)
+        return metrics
+    def plot_stats(self):
+        """
+        Affiche un tableau des statistiques calculées.
+        """
+        # Préparer les données pour le tableau
+        headers = ["Observation", "Year", "Stat Name", "Value"]
+        rows = []
+        fill_colors = []
+
+        color1 = 'lavender'
+        color2 = 'lightgrey'
+        current_color = color1
+
+        for key, value in self.stats.items():
+            observation, year = key
+            start_index = len(rows)
+            for stat_name, stat_value in value.items():
+                if isinstance(stat_value, dict):
+                    for sub_key, sub_value in stat_value.items():
+                        rows.append([observation, year, f"{stat_name} - {sub_key}", f"{sub_value:.4f}"])
+                else:
+                    rows.append([observation, year, stat_name, f"{stat_value:.4f}"])
+            end_index = len(rows)
+            fill_colors.extend([current_color] * (end_index - start_index))
+            current_color = color2 if current_color == color1 else color1
+
+        # Créer le tableau Plotly
+        fig = go.Figure(data=[go.Table(
+            header=dict(values=headers, fill_color='paleturquoise', align='left'),
+            cells=dict(values=[list(col) for col in zip(*rows)], fill_color=[fill_colors] * len(headers), align='left')
+        )])
+
+        fig.update_layout(title="Statistics Table")
+        if self.show: fig.show()
+    
+    def plot_stats_graph(self, filepaths=None, experiment_paths=None):
+        """
+        Affiche un graphique des statistiques à partir de fichiers JSON.
+
+        Args:
+            filepaths (list): Liste des chemins vers les fichiers JSON contenant les statistiques.
+            experiment_paths (list, optional): Liste des chemins vers les dossiers d'expériences.
+        """
+        if not filepaths and not experiment_paths:
+            raise ValueError("Aucun fichier de statistiques ou chemin d'expérience n'a été fourni")
+
+        # Si experiment_paths est fourni, construire les filepaths
+        if experiment_paths:
+            filepaths = [Path(exp_path) / "generated_dataset_validation_stats.json" for exp_path in experiment_paths]
+        print(filepaths)
+        # Calculer les métriques pour chaque fichier
+        metrics_by_file = {}
+
+        i=0 
+        for filepath in filepaths:
+            if not os.path.exists(filepath):
+                print(f"Attention: Le fichier {filepath} n'existe pas")
+                continue
+
+            data = json.loads(Path(filepath).read_text())
+            
+            # Si experiment_paths est fourni, récupérer le nom depuis le fichier config
+            if experiment_paths:
+                exp_path = Path(filepath).parent
+                config_path = exp_path / "config.json"
+                if os.path.exists(config_path):
+                    with open(config_path, 'r') as f:
+                        config = json.load(f)
+                        graph_name = config.get('graph_name', Path(filepath).name + f"_{i}")
+                else:
+                    graph_name = Path(filepath).name + f"_{i}"
+            else:
+                graph_name = Path(filepath).name + f"_{i}"
+            
+            metrics_by_file[graph_name] = self.compute_metrics(data)
+        
+            # print(graph_name)   
+
+            i+=1
+        # print(len(metrics_by_file))    
+        if not metrics_by_file:
+            raise ValueError("Aucune métrique n'a pu être calculée à partir des fichiers fournis")
+
+        # Vérifier si la métrique rmse_error est disponible pour au moins un fichier
+        has_full_rmse = True
+        
+        # Liste des métriques de base
+        base_metric_list = ["num_params", "mean_error", "std_error", "percentage_error", "js_distance", "digit_mean_errors", "digit_std_errors", "rmse_error", "sequence_length_js_distance", "final_val_loss", "series_count_error", "series_mean_error", "series_std_error"]
+        base_title_list = [
+            "Nombre de paramètres<br>du réseau",
+            "Moyenne des erreurs<br>de moyenne de longueurs",
+            "Moyenne des erreurs<br>de std de longueurs",
+            "Pourcentage de terminal<br>fate mal prédit",
+            "Distance de Jensen Shannon<br>entre les deux distributions",
+            "Moyenne des erreurs de moyenne<br>d'occurences de chaque chiffre",
+            "Moyenne des erreurs de std<br>d'occurences de chaque chiffre",
+            "Moyenne des RMSE entre les paramètres<br>des matrices de transitions",
+            "Distance de Jensen Shannon<br>des distributions de longueurs",
+            "Moyenne de la loss de validation<br>sur les 20 dernières epochs",
+            "Erreur moyenne du nombre<br>de séries (tous chiffres)",
+            "Erreur moyenne de la taille<br>des séries (tous chiffres)",
+            "Erreur moyenne de std<br>des séries (tous chiffres)"
+        ]
+        
+        # Supprimer les métriques individuelles par chiffre
+        metric_list = base_metric_list
+        title_list = base_title_list
+
+        # Mettre à jour les valeurs RMSE à 0 pour tous les fichiers si elle n'est pas complète
+        if not has_full_rmse:
+            for name in metrics_by_file:
+                metrics_by_file[name]["rmse_error"] = (None, None)
+
+        graph_names = list(metrics_by_file.keys())
+        
+        # Assigner une couleur fixe par fichier
+        colors = px.colors.qualitative.Plotly
+        color_map = {name: colors[i % len(colors)] for i, name in enumerate(graph_names)}
+        
+        # Calculer le nombre de lignes et colonnes nécessaires de manière responsive
+        n_metrics = len(metric_list)
+        
+        # Déterminer le nombre de colonnes en fonction de la largeur de l'écran
+        # On suppose une largeur minimale de 400px par graphique
+        min_graph_width = 400
+        screen_width = 1920  # Largeur par défaut, peut être ajustée
+        n_cols = max(1, min(3, screen_width // min_graph_width))
+        n_rows = (n_metrics + n_cols - 1) // n_cols
+        
+        # Création de la grille de subplots
+        fig = make_subplots(rows=n_rows, cols=n_cols, subplot_titles=title_list)
+ 
+        # Pour chaque métrique, ajouter un trace par fichier avec sa couleur
+        for i, metric in enumerate(metric_list):
+            row = i // n_cols + 1
+            col = i % n_cols + 1
+            for name in graph_names:
+                m, s = metrics_by_file[name][metric]
+                m = 0 if m is None else m
+                s = 0 if s is None else s
+                
+                # Pour le nombre de paramètres, on utilise une échelle logarithmique
+                if metric == "num_params":
+                    fig.add_trace(
+                        go.Bar(
+                            x=[name],
+                            y=[np.log10(m) if m > 0 else 0],
+                            error_y=dict(
+                                type="data",
+                                array=[s],
+                                visible=True,
+                                thickness=1,
+                                width=1
+                            ),
+                            marker_color=color_map[name],
+                            name=name,
+                            showlegend=False
+                        ),
+                        row=row, col=col
+                    )
+                    # Mettre à jour l'axe y pour afficher les valeurs en échelle logarithmique
+                    fig.update_yaxes(type="log", title_text="log10(Nombre de paramètres)", row=row, col=col)
+                else:
+                    fig.add_trace(
+                        go.Bar(
+                            x=[name],
+                            y=[m],
+                            error_y=dict(
+                                type="data",
+                                array=[s],
+                                visible=True,
+                                thickness=1,
+                                width=1
+                            ),
+                            marker_color=color_map[name],
+                            name=name,
+                            showlegend=False
+                        ),
+                        row=row, col=col
+                    )
+        
+        # Calculer la hauteur et la largeur en fonction du nombre de lignes et colonnes
+        height_per_row = 400  # Hauteur par ligne en pixels
+        width_per_col = min_graph_width  # Largeur par colonne en pixels
+        total_height = height_per_row * n_rows
+        total_width = width_per_col * n_cols
+
+        fig.update_layout(
+            title=dict(
+                text="Synthèse des Metrics de validation à nombre de paramètres égaux pour des FeedForward Layer différentes",
+                x=0.5,
+                font=dict(family="Arial", size=24, color="black", weight="bold")
+            ),
+            barmode="group",
+            height=total_height,
+            width=total_width,
+            margin=dict(t=100, b=50, l=50, r=50),
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+                font=dict(size=12)
+            ),
+            # autosize=True  # Activer le redimensionnement automatique
+        )
+
+        # Ajuster la taille des polices pour les titres des sous-graphiques
+        fig.update_annotations(font_size=14)
+        
+        # Ajuster la taille des polices pour les axes
+        fig.update_xaxes(title_font_size=12, tickfont_size=10)
+        fig.update_yaxes(title_font_size=12, tickfont_size=10)
+
+        # Configurer le mode responsive
+        fig.update_layout(
+
+            # autosize=True,
+            height=total_height,
+            width=screen_width
+        )
+
+        fig.show()
+
+    def save_stats(self, filepath):
+        """
+        Sauvegarde les statistiques calculées dans un fichier JSON.
+
+        Args:
+            filepath (str): Chemin où sauvegarder le fichier JSON des statistiques.
+        """
+        # Convertir les clés en chaînes de caractères
+        stats_str_keys = {f"{key[0]}_{key[1]}": value for key, value in self.stats.items()}
+        with open(filepath, 'w') as f:
+            json.dump(stats_str_keys, f, indent=4,sort_keys=True)
+        print(f"Statistics saved to {filepath}")
+
+    def load_stats(self, filepath):
+
+        """
+        Charge les statistiques à partir d'un fichier JSON.
+
+        Args:
+            filepath (str): Chemin vers le fichier JSON des statistiques.
+        """
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                stats_str_keys = json.load(f)
+            # Reconvertir les clés en tuples
+            self.stats = {tuple(key.split('_')): value for key, value in stats_str_keys.items()}
+            print(f"Statistics loaded from {filepath}")
+        else:
+            print(f"File {filepath} does not exist")
+
+    def rmse_and_log_probability_sequence_metric_sequence_analysis(self,generated_dataset_path,stats_file_path,validation_folder_path,windows = True):
+        # Chemin du script Bash stocké dans Windows
+        if windows:
+            script_path = "/mnt/c/Users/Robin/Documents/Stage pommiers/Transformer_pommiers/script.sh"
+            stat_file_path_arg =str("/Transformer_pommiers/" / validation_folder_path / stats_file_path).replace("\\","/") 
+            generated_dataset_path_arg = str("/Transformer_pommiers/" / validation_folder_path / generated_dataset_path).replace("\\","/")
+            validation_folder_path_arg = str("/Transformer_pommiers/" / validation_folder_path).replace("\\","/") +"/"
+            subprocess.run(["wsl", "bash", script_path,stat_file_path_arg,generated_dataset_path_arg,validation_folder_path_arg])
+        else:
+            stat_file_path_arg =str("/Transformer_pommiers/" / validation_folder_path / stats_file_path).replace("\\","/") 
+            generated_dataset_path_arg = str("/Transformer_pommiers/" / validation_folder_path / generated_dataset_path).replace("\\","/")
+            validation_folder_path_arg = str("/Transformer_pommiers/" / validation_folder_path).replace("\\","/") +"/"
+
+            script = [
+                "singularity",
+                "exec", "-e", "-B", "./:/Transformer_pommiers", "../VPlants2.simg", "bash",
+                "/Transformer_pommiers/singularity_workspace/script.sh",
+                stat_file_path_arg,
+                generated_dataset_path_arg,
+                validation_folder_path_arg
+            ]
+            subprocess.run(script)
+    
+    def sequence_series_analysis(self, generated_dataset_path):
+        """
+        Analyse les séries de chiffres dans les séquences et compare les statistiques entre le dataset original et généré.
+
+        Args:
+            generated_dataset_path (str): Chemin vers le fichier CSV des données générées.
+        """
+        dataset = self.df.copy()
+        generated_dataset = pd.read_csv(generated_dataset_path)
+        dataset['Source'] = 'Dataset'
+        generated_dataset['Source'] = 'Generated Dataset'
+        combined_dataset = pd.concat([dataset, generated_dataset])
+        unique_pairs = combined_dataset[['Observation', 'Year']].drop_duplicates()
+
+        def count_series(sequence, digit):
+            """Compte le nombre de séries d'un chiffre donné et leur taille moyenne."""
+            series = []
+            current_series = 0
+            
+            for char in sequence:
+                if char == str(digit):
+                    current_series += 1
+                elif current_series > 0:
+                    series.append(current_series)
+                    current_series = 0
+            
+            if current_series > 0:
+                series.append(current_series)
+            
+            # Si aucune série n'est trouvée, retourner 0 pour le nombre et None pour la moyenne
+            if not series:
+                return 0, None, None
+            
+            return len(series), np.mean(series), np.std(series)
+
+        for _, row in unique_pairs.iterrows():
+            observation = row['Observation']
+            year = row['Year']
+            subset = combined_dataset[(combined_dataset['Observation'] == observation) &
+                                    (combined_dataset['Year'] == year)].copy()
+            
+            # Analyse pour chaque chiffre (0-4)
+            for digit in range(5):
+                # Calculer les statistiques pour le dataset original
+                ds_subset = subset[subset['Source'] == 'Dataset']
+                ds_series_counts = []
+                ds_series_means = []
+                ds_series_stds = []
+                
+                for seq in ds_subset['Sequence']:
+                    count, mean, std = count_series(seq, digit)
+                    ds_series_counts.append(count)
+                    if mean is not None:  # N'ajouter la moyenne que si elle existe
+                        ds_series_means.append(mean)
+                        ds_series_stds.append(std)
+                
+                # Calculer les statistiques pour le dataset généré
+                gen_subset = subset[subset['Source'] == 'Generated Dataset']
+                gen_series_counts = []
+                gen_series_means = []
+                gen_series_stds = []
+                
+                for seq in gen_subset['Sequence']:
+                    count, mean, std = count_series(seq, digit)
+                    gen_series_counts.append(count)
+                    if mean is not None:  # N'ajouter la moyenne que si elle existe
+                        gen_series_means.append(mean)
+                        gen_series_stds.append(std)
+                
+                # Calculer les erreurs
+                count_error = abs(np.mean(ds_series_counts) - np.mean(gen_series_counts))
+                # Calculer la moyenne et l'écart-type seulement si des séries existent dans les deux datasets
+                mean_error = abs(np.mean(ds_series_means) - np.mean(gen_series_means)) if ds_series_means and gen_series_means else 0
+                std_error = abs(np.mean(ds_series_stds) - np.mean(gen_series_stds)) if ds_series_stds and gen_series_stds else 0
+                
+                # Mettre à jour les statistiques
+                key = (observation, year)
+                if key not in self.stats:
+                    self.stats[key] = {}
+                
+                self.stats[key][f"digit_{digit}_series_count_error"] = count_error
+                self.stats[key][f"digit_{digit}_series_mean_error"] = mean_error
+                self.stats[key][f"digit_{digit}_series_std_error"] = std_error
+                
+                # Créer un graphique pour visualiser les résultats
+                fig = go.Figure()
+                
+                # Ajouter les barres pour le nombre de séries
+                fig.add_trace(go.Bar(
+                    name='Dataset',
+                    x=['Nombre de séries', 'Taille moyenne', 'Écart-type'],
+                    y=[np.mean(ds_series_counts), np.mean(ds_series_means) if ds_series_means else 0, np.mean(ds_series_stds) if ds_series_stds else 0],
+                    error_y=dict(
+                        type='data',
+                        array=[np.std(ds_series_counts), np.std(ds_series_means) if ds_series_means else 0, np.std(ds_series_stds) if ds_series_stds else 0],
+                        visible=True
+                    ),
+                    marker_color='green'
+                ))
+                
+                fig.add_trace(go.Bar(
+                    name='Généré',
+                    x=['Nombre de séries', 'Taille moyenne', 'Écart-type'],
+                    y=[np.mean(gen_series_counts), np.mean(gen_series_means) if gen_series_means else 0, np.mean(gen_series_stds) if gen_series_stds else 0],
+                    error_y=dict(
+                        type='data',
+                        array=[np.std(gen_series_counts), np.std(gen_series_means) if gen_series_means else 0, np.std(gen_series_stds) if gen_series_stds else 0],
+                        visible=True
+                    ),
+                    marker_color='blue'
+                ))
+                
+                fig.update_layout(
+                    title=f"Statistiques des séries du chiffre {digit} pour {observation} en {year}",
+                    barmode='group',
+                    height=600,
+                    width=800
+                )
+                
+                if self.show:
+                    fig.show()
+                
+                self.save_figure(fig, f"series_analysis_digit_{digit}", observation, year)
+
+    def validation_pipeline(self,generated_dataset_path,stats_dataset_path,windows = True,show = False):
+        self.show = show
+        self.load_stats(self.validation_folder_path / stats_dataset_path)
+        self.load_data("markov_python_generated_dataset10000.csv")
+        print("[INFO] Validation markov model au file: ", self.validation_folder_path / generated_dataset_path)
+        self.markov_model_validation(self.validation_folder_path / generated_dataset_path)
+        print("[INFO] Validation sequence length")
+        self.sequence_length_validation(self.validation_folder_path / generated_dataset_path)
+        print("[INFO] Validation sequence length distribution")
+        self.sequence_length_distribution_validation(self.validation_folder_path / generated_dataset_path)
+        print("[INFO] Validation sequence digit stats")
+        self.sequence_digit_stats(self.validation_folder_path / generated_dataset_path)
+        print("[INFO] Validation series analysis")
+        self.sequence_series_analysis(self.validation_folder_path / generated_dataset_path)
+  
+        self.save_stats(self.validation_folder_path / stats_dataset_path)
+        print("[INFO] Validation log prob distribution of sequences")
+        self.rmse_and_log_probability_sequence_metric_sequence_analysis(generated_dataset_path,stats_dataset_path,self.validation_folder_path,windows)
+        self.log_prob_distribution_of_sequences(self.validation_folder_path / generated_dataset_path,from_csv = True)
+        # self.plot_stats_graph([self.validation_folder_path / stats_dataset_path])
+        # self.plot_stats()
+
+        
+if __name__ == "__main__":
+    vocab_to_id ={'<PAD>': 0, '<SOS>': 1, '0': 2, '1': 3, '2': 4, '3': 5, '4': 6, 'DORMANT': 7, 'FLORAL': 8, 'LARGE': 9, 'MEDIUM': 10, 'SMALL': 11, 'Y1': 12, 'Y2': 13, 'Y3': 14, 'Y4': 15, 'Y5': 16} 
+    id_to_vocab = {v: k for k, v in vocab_to_id.items()}
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    # Création d'une instance de Validator sans modèle
+    validator = Validator(show=True)
+    
+    # Liste des dossiers d'expériences à valider
+    experiment_paths = [ path for path in Path("experiments").glob("*") if path.is_dir()] 
+    
+    # Conversion en objets Path
+    experiment_paths = [Path(path) for path in experiment_paths]
+     
+    
+    # Exécution des validations pour chaque expérience
+    # for exp_path in experiment_paths:
+    #     print(f"\n[INFO] Validation de l'expérience: {exp_path}")
+    #     validator.validation_folder_path = exp_path
+    #     # Chemins des fichiers
+    #     generated_dataset_path =  "generated_dataset.csv"
+    #     stats_dataset_path = "generated_dataset_validation_stats.json"
+        
+        # Exécution de la validation pipeline
+        # validator.validation_pipeline(
+        #     generated_dataset_path=generated_dataset_path,
+        #     stats_dataset_path=stats_dataset_path,
+        #     windows=True,
+        #     show=False
+        # )
+        
+        # Exécution des validations supplémentaires
+        # print("[INFO] Validation RMSE et log probability sequence metric")
+        # validator.rmse_and_log_probability_sequence_metric_sequence_analysis(
+        #     generated_dataset_path=generated_dataset_path,
+        #     stats_file_path=stats_dataset_path,
+        #     validation_folder_path=exp_path,
+        #     windows=False
+        # )
+        
+    #     print("[INFO] Validation log prob distribution of sequences")
+    #     validator.log_prob_distribution_of_sequences(
+    #         generated_dataset_path=generated_dataset_path,
+    #         from_csv=True
+    #     )
+    
+    # Affichage du graphique de comparaison final
+    print("\n[INFO] Génération du graphique de comparaison des statistiques")
+    validator.plot_stats_graph(experiment_paths=experiment_paths)

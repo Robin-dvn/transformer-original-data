@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+model_weights/
+wandb/
+experiments/
+singularity_workspace/
