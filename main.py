@@ -7,7 +7,7 @@ if __name__ == "__main__":
     if test:
         # Configuration de base pour test
         configs = [(15, 32, 1024)]  # Uniquement la première configuration pour le test
-        nb_epochs = 50  # Réduit à 1 epoch pour le test
+        nb_epochs = 1 # Réduit à 1 epoch pour le test
         sync = True
         print("=== Mode Test ===")
     else:
@@ -77,6 +77,3 @@ if __name__ == "__main__":
         # config_early["graph_name"] = f"DO_NBL-{nb_layers}_DM-{d_model}_DFF-{dim_feedforward}_early"
         # print(f"=== {'Test' if test else 'Essai'} early stopping ===")
         # validator_early = train_generate_validate_pipeline(config_early,sync_wandb=sync)
-
-
-
