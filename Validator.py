@@ -90,7 +90,7 @@ class Validator:
 
         sequences_generees = []
         decoder_only = True
-        for type in tqdm(range(9, 11)):
+        for type in tqdm(range(10, 11)):
             for year in range(12, 17):
                 
                 if nb_samples > 1000:
@@ -1205,9 +1205,11 @@ if __name__ == "__main__":
     id_to_vocab = {v: k for k, v in vocab_to_id.items()}
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # model = TransformerDecoderOnly(17,32)
     
     # Création d'une instance de Validator sans modèle
     validator = Validator(show=True)
+
     
     # Liste des dossiers d'expériences à valider
     experiment_paths = [ path for path in Path("experiments").glob("*") if path.is_dir()] 

@@ -22,6 +22,7 @@ class PommierDatasetDecoderOnly(Dataset):
             token_to_id (dict, optional): Mapping token -> ID. S'il est None, il sera construit.
         """
         self.dataset = pd.read_csv(dataset_path)
+        self.dataset = self.dataset[self.dataset["Observation"] == "MEDIUM"]
 
         # Tokenisation à la volée
         self.dataset["tokens"] = self.dataset.apply(lambda row: self.tokenize_row(row), axis=1)
