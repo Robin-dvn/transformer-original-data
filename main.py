@@ -1,8 +1,8 @@
-from pipeline import train_decoder_only, train_generate_validate_pipeline
+from pipeline import train_generate_validate_pipeline
 
 if __name__ == "__main__":
     # Variable pour contrôler si on fait un test ou une version complète
-    test = True  # Mettre à False pour la version complète
+    test = False  # Mettre à False pour la version complète
 
     if test:
         # Configuration de base pour test
@@ -17,7 +17,7 @@ if __name__ == "__main__":
             (15, 32, 1024),  # NBL-15_DM-32_DFF-1024
 
         ]
-        nb_epochs = 2
+        nb_epochs = 100
         sync = True
         print("=== Mode Complet ===")
 

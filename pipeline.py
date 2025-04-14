@@ -178,7 +178,7 @@ def train_decoder_only(config_dict, trial=None):
             "dim_feedforward": dim_feedforward,
             "scheduler": scheduler_config['name'],
             "scheduler_params": (
-                scheduler_config['params'] if scheduler_config['name'] != "None" 
+                scheduler_config['params'] if scheduler_config['name'] != "None"
                 else None
             ),
             "early_stopping": early_stopping_config['name'],
@@ -210,8 +210,8 @@ def train_decoder_only(config_dict, trial=None):
             model.train()
             total_train_loss = 0
             for input_seq, target_seq in tqdm(
-                train_loader, 
-                desc=f"Epoch {epoch} - Train", 
+                train_loader,
+                desc=f"Epoch {epoch} - Train",
                 colour="green"
             ):
                 try:
@@ -266,8 +266,8 @@ def train_decoder_only(config_dict, trial=None):
             total_eval_loss = 0
             with torch.no_grad():
                 for input_seq, target_seq in tqdm(
-                    val_loader, 
-                    desc=f"Epoch {epoch} - Val", 
+                    val_loader,
+                    desc=f"Epoch {epoch} - Val",
                     colour="blue"
                 ):
                     try:
@@ -298,7 +298,7 @@ def train_decoder_only(config_dict, trial=None):
                 trial.report(avg_val_loss, step=epoch)
                 if trial.should_prune():
                     raise optuna.TrialPruned()
-                
+
                 # Mise à jour de la meilleure perte de validation
                 best_val_loss = min(best_val_loss, avg_val_loss)
 
@@ -346,32 +346,32 @@ def train_decoder_only(config_dict, trial=None):
 def find_wandb_run_path(run_id):
     """
     Trouve le chemin du dossier wandb contenant l'ID de la run spécifié.
-    
+
     Args:
         run_id: L'ID de la run wandb
-        
+
     Returns:
         str: Le chemin complet du dossier de la run
     """
     wandb_dir = Path("wandb")
     if not wandb_dir.exists():
         raise FileNotFoundError("Le dossier wandb n'existe pas")
-        
+
     for run_dir in wandb_dir.iterdir():
         if run_dir.is_dir() and str(run_id) in run_dir.name:
             return str(run_dir)
-            
+
     raise FileNotFoundError(f"Aucun dossier trouvé contenant l'ID {run_id}")
 
 def train_generate_validate_pipeline(config_dict, trial=None, sync_wandb=False):
     """
     Pipeline pour entraîner, générer et valider un modèle en utilisant une configuration passée en dictionnaire.
-    
+
     Args:
         config_dict (dict): Dictionnaire contenant les paramètres de configuration.
         trial (optuna.Trial, optional): Trial Optuna pour l'optimisation des hyperparamètres.
         sync_wandb (bool, optional): Si True, synchronise les données avec wandb en ligne à la fin de la run.
-    
+
     Returns:
         Validator : Instance de la classe Validator utilisée pour générer et valider les données.
     """
@@ -394,63 +394,64 @@ def train_generate_validate_pipeline(config_dict, trial=None, sync_wandb=False):
     validator = Validator(model, device, token_to_id=vocab_to_id, validation_folder_path=experiment_path)
     st = time()
     try:
-        validator.generate_data(10000, experiment_path / "generated_dataset.csv", end_toks_list=[7, 8, 9, 10, 11])
+        validator.generate_data(500, experiment_path / "generated_dataset.csv", end_toks_list=[7, 8, 9, 10, 11])
     except ValidationError as e:
         print(f"[ERROR] {e}")
         return None
     et = time()
     print(f"[INFO] le temps en secondes pour la génération est de : {et-st}")
-    validator.load_data("out/markov_python_generated_dataset10000.csv")
-    st = time()
-    validator.validation_pipeline("generated_dataset.csv", "generated_dataset_validation_stats.json", windows=False)
-    et = time()
-    print(f"[INFO] le temps en minutes pour la validation est de : {(et-st)/60}")
+    # validator.load_data("out/markov_python_generated_dataset10000.csv")
+    # st = time()
+    # # validator.validation_pipeline("generated_dataset.csv", "generated_dataset_validation_stats.json", windows=False)
+    # et = time()
+    # print(f"[INFO] le temps en minutes pour la validation est de : {(et-st)/60}")
 
-    # Lecture des statistiques de validation
-    with open(experiment_path / "generated_dataset_validation_stats.json", "r", encoding='utf-8') as f:
-        stats = json.load(f)
-    
-    # Calcul du nombre de paramètres du modèle
-    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    
-    # Stockage de la perte de validation et du nombre de paramètres dans le validator pour retour
-    stats["final_val"] = final_val_loss
-    stats["num_params"] = num_params
-    
-    with open(experiment_path / "generated_dataset_validation_stats.json", "w", encoding='utf-8') as f:
-        json.dump(stats, f)
-    # Calcul des métriques globales
-    metrics = validator.compute_metrics(stats)
+    # # Lecture des statistiques de validation
+    # with open(experiment_path / "generated_dataset_validation_stats.json", "r", encoding='utf-8') as f:
+    #     stats = json.load(f)
 
-    # Si on est dans un trial Optuna, on enregistre toutes les métriques
-    if trial is not None:
-        # Enregistrement de la perte de validation finale (moyenne sur les 20 dernières époques)
-        trial.set_user_attr('final_val', final_val_loss)
-        trial.set_user_attr('num_params', num_params)
-        
-        # Enregistrement des métriques de validation
-        for metric_name, (mean, std) in metrics.items():
-            if mean is not None:  # On n'enregistre que les métriques qui ont des valeurs
-                trial.set_user_attr(f'{metric_name}_mean', mean)
-                trial.set_user_attr(f'{metric_name}_std', std)
+    # # Calcul du nombre de paramètres du modèle
+    # num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-    # Fermeture de la run wandb avec ou sans synchronisation en ligne
-    if sync_wandb:
-        # On termine d'abord la run en mode offline
-        wandb_run.finish(quiet=True)
-        # Puis on synchronise en ligne en utilisant l'ID unique de la run
-        print("[INFO] Synchronisation des données wandb en ligne...")
-        try:
-            run_path = find_wandb_run_path(wandb_run.id)
-            subprocess.run(
-                ["wandb", "sync", run_path],
-                check=True,
-                capture_output=True,
-                text=True
-            )
-        except (FileNotFoundError, subprocess.CalledProcessError) as e:
-            print(f"[WARNING] Erreur lors de la synchronisation wandb: {e}")
-    else:
-        wandb_run.finish(quiet=True)
+    # # Stockage de la perte de validation et du nombre de paramètres dans le validator pour retour
+    # stats["final_val"] = final_val_loss
+    # stats["num_params"] = num_params
 
-    return metrics["final_val"]
+    # with open(experiment_path / "generated_dataset_validation_stats.json", "w", encoding='utf-8') as f:
+    #     json.dump(stats, f)
+    # # Calcul des métriques globales
+    # metrics = validator.compute_metrics(stats)
+
+    # # Si on est dans un trial Optuna, on enregistre toutes les métriques
+    # if trial is not None:
+    #     # Enregistrement de la perte de validation finale (moyenne sur les 20 dernières époques)
+    #     trial.set_user_attr('final_val', final_val_loss)
+    #     trial.set_user_attr('num_params', num_params)
+
+    #     # Enregistrement des métriques de validation
+    #     for metric_name, (mean, std) in metrics.items():
+    #         if mean is not None:  # On n'enregistre que les métriques qui ont des valeurs
+    #             trial.set_user_attr(f'{metric_name}_mean', mean)
+    #             trial.set_user_attr(f'{metric_name}_std', std)
+
+    # # Fermeture de la run wandb avec ou sans synchronisation en ligne
+    # if sync_wandb:
+    #     # On termine d'abord la run en mode offline
+    #     wandb_run.finish(quiet=True)
+    #     # Puis on synchronise en ligne en utilisant l'ID unique de la run
+    #     print("[INFO] Synchronisation des données wandb en ligne...")
+    #     try:
+    #         run_path = find_wandb_run_path(wandb_run.id)
+    #         subprocess.run(
+    #             ["wandb", "sync", run_path],
+    #             check=True,
+    #             capture_output=True,
+    #             text=True
+    #         )
+    #     except (FileNotFoundError, subprocess.CalledProcessError) as e:
+    #         print(f"[WARNING] Erreur lors de la synchronisation wandb: {e}")
+    # else:
+    #     wandb_run.finish(quiet=True)
+
+    # return metrics["final_val"]
+    return

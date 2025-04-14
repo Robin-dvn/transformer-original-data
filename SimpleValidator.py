@@ -2,6 +2,11 @@
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.io as pio
+pio.renderers.default = 'browser'
+import webbrowser
+webbrowser.register('firefox', None, webbrowser.BackgroundBrowser('/usr/bin/firefox'))
+
 
 class SimpleValidator:
     def __init__(self) -> None:
@@ -57,6 +62,7 @@ class SimpleValidator:
         """
 
         dataframe = dataframe[dataframe["Sequence"] !=0]
+        dataframe = dataframe[(dataframe['Observation'] == 'MEDIUM') & (dataframe['Year'].isin(['Y4','Y5']))]
 
         unique_pairs = dataframe[['Observation', 'Year']].drop_duplicates()
 
@@ -74,8 +80,8 @@ class SimpleValidator:
                             stats.loc[stats['Source'] == 'Generated Dataset', 'mean'].values[0])
             std_error = abs(stats.loc[stats['Source'] == 'Dataset', 'std'].values[0] -
                             stats.loc[stats['Source'] == 'Generated Dataset', 'std'].values[0])
-            #self.stats[(observation, year)]["mean_error"] = mean_error
-            #self.stats[(observation, year)]["std_error"] = std_error
+            # self.stats[(observation, year)]["mean_error"] = mean_error
+
 
             y_max = stats['mean'].max() + 10 * stats['std'].max()
             y_min = stats['mean'].min() - 10 * stats['std'].max()
@@ -115,7 +121,7 @@ class SimpleValidator:
                     )
                 ]
             )
-
+            print("Graph generated successfully.")
             if self.show: fig.show()
             fig.update_layout(
                 title_text=f'Sequence length for {observation} in {year}',
@@ -128,5 +134,6 @@ class SimpleValidator:
 
 if __name__ == "__main__":
     validator = SimpleValidator()
-    df = validator.filter_and_equalize_dataset("generated_dataset.csv","data/all_sequences.csv","Generated Dataset","Dataset")
+    validator.show = True
+    df = validator.filter_and_equalize_dataset("markov_python_generated_dataset10000.csv","data/all_sequences.csv","Generated Dataset","Dataset")
     validator.sequence_length_validation(df)
