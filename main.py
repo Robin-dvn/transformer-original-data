@@ -17,7 +17,7 @@ if __name__ == "__main__":
             (15, 32, 1024),  # NBL-15_DM-32_DFF-1024
 
         ]
-        nb_epochs = 100
+        nb_epochs = 2800
         sync = True
         print("=== Mode Complet ===")
 
@@ -25,14 +25,14 @@ if __name__ == "__main__":
         config_dict = {
             'dataset_path': "data/all_sequences.csv",
             'seed': 42,
-            'batch_size': 2,
+            'batch_size': 64,
             'val_split': 0.8,
             'vocab_size': 17,
             'padding_idx': 0,
             'n_head': 4,
             'd_model': d_model,
             'nb_layers': nb_layers,
-            'lr': 5e-5,
+            'lr': 5e-6,
             'nb_epoch': nb_epochs,
             'dim_feedforward': dim_feedforward,
             'dynamic': False,

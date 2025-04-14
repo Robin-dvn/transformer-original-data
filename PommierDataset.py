@@ -16,17 +16,17 @@ class PommierDatasetDecoderOnly(Dataset):
     def __init__(self, dataset_path, token_to_id=None):
         """
         Dataset PyTorch pour un modèle Décodeur-only.
-        
+
         Args:
             dataset_path (str): Chemin du fichier CSV contenant les séquences brutes.
             token_to_id (dict, optional): Mapping token -> ID. S'il est None, il sera construit.
         """
         self.dataset = pd.read_csv(dataset_path)
-        self.dataset = self.dataset[self.dataset["Observation"] == "MEDIUM"]
+        self.dataset = self.dataset[((self.dataset["Observation"] == "MEDIUM") & (self.dataset['Year'].isin(['Y4', 'Y5'])))]
 
         # Tokenisation à la volée
         self.dataset["tokens"] = self.dataset.apply(lambda row: self.tokenize_row(row), axis=1)
-        
+
         # Construction du vocabulaire (si non fourni)
         if token_to_id is None:
             self.token_to_id = self.build_vocab(self.dataset["tokens"])
@@ -37,7 +37,7 @@ class PommierDatasetDecoderOnly(Dataset):
         self.dataset["token_ids"] = self.dataset["tokens"].apply(
             lambda tokens: [self.token_to_id[token] for token in tokens]
         )
-        
+
     def tokenize_row(self, row):
         """Tokenise une ligne du dataset."""
         tokens = []
@@ -57,10 +57,10 @@ class PommierDatasetDecoderOnly(Dataset):
         vocab = {"<PAD>": 0, "<SOS>": 1}
         vocab.update({token: idx + len(vocab) for idx, token in enumerate(unique_tokens)})
         return vocab
-    
+
     def __len__(self):
         return len(self.dataset)
-    
+
     def __getitem__(self, idx):
         """
         Pour chaque exemple, on construit :
@@ -74,8 +74,8 @@ class PommierDatasetDecoderOnly(Dataset):
         full_seq = token_ids[:2] + [self.token_to_id["<SOS>"]] + token_ids[2:]
         input_seq = torch.tensor(full_seq[:-1], dtype=torch.long)
         target_seq = torch.tensor(full_seq[1:], dtype=torch.long)
-        # print(target_seq) 
-        
+        # print(target_seq)
+
 
         return input_seq, target_seq
 

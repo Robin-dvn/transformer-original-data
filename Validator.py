@@ -105,7 +105,7 @@ class Validator:
                           sequences_generees.extend(torch.cat((start_seq, generated_seq[:, 3:]), dim=1).to('cpu').tolist())
                 else:
                     start_seq = torch.tensor([[type, year]] * nb_samples, device=self.device)
-
+                    start_seq = start_seq.to('cpu')
                     generated_seq = self.model.generate_batch(start_seq, 1, self.device, end_toks_list, batch_size=nb_samples)
                     if not decoder_only:
                       sequences_generees.extend(torch.cat((start_seq, generated_seq[:, 1:]), dim=1).to('cpu').tolist())
