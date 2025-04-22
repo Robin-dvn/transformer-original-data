@@ -3,6 +3,7 @@ Module de pipelines pour l'entraînement, la génération et la validation de mo
 Ce module contient les fonctions principales pour gérer le workflow complet d'apprentissage.
 """
 
+
 # Standard library imports
 import json
 import subprocess
@@ -18,6 +19,7 @@ import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau, CyclicLR
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
+from torch.utils.data import WeightedRandomSampler
 import wandb
 
 # Local imports
@@ -124,12 +126,15 @@ def train_decoder_only(config_dict, trial=None):
 
         # Dataset creation
         dataset = PommierDatasetDecoderOnly(dataset_path)
+        sampler = WeightedRandomSampler(weights=dataset.weights, num_samples=len(dataset), replacement=True)
+
+
 
         train_size = int(val_split * len(dataset))
         val_size = len(dataset) - train_size
         trian_spit, val_split = random_split(dataset, [train_size, val_size])
 
-        train_loader = DataLoader(trian_spit, batch_size=batch_size, shuffle=True, collate_fn=collate_fn_decoder_only)
+        train_loader = DataLoader(trian_spit,sampler=sampler, batch_size=batch_size, collate_fn=collate_fn_decoder_only)
         val_loader = DataLoader(val_split, batch_size=batch_size, shuffle=False, collate_fn=collate_fn_decoder_only)
 
         # Model creation
@@ -142,7 +147,8 @@ def train_decoder_only(config_dict, trial=None):
             dim_feedforward=dim_feedforward
         )
         model.to(device)
-
+        if continue_training:
+            model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
 
         optimizer = torch.optim.Adam(model.parameters(), lr)
 
@@ -187,6 +193,7 @@ def train_decoder_only(config_dict, trial=None):
                 else None
             ),
             "auto_precision": auto_precision
+
         }
         wandb.init(
             name=exp_name,

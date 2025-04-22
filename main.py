@@ -44,8 +44,8 @@ if __name__ == "__main__":
                 'name': 'None',
                 'params': {}
             },
-            'continue_training': False,
-            'checkpoint_path': None,
+            'continue_training': True,
+            'checkpoint_path': "checkpoints/checkpoint_model_15_32_500.pth",
             'auto_precision': False,
             'graph_name': f"DO_NBL-{nb_layers}_DM-{d_model}_DFF-{dim_feedforward}_baseline"
         }
