@@ -2,13 +2,13 @@ from pipeline import train_generate_validate_pipeline
 
 if __name__ == "__main__":
     # Variable pour contrôler si on fait un test ou une version complète
-    test = False  # Mettre à False pour la version complète
+    test = True  # Mettre à False pour la version complète
 
     if test:
         # Configuration de base pour test
         configs = [(15, 32, 1024)]  # Uniquement la première configuration pour le test
-        nb_epochs = 1 # Réduit à 1 epoch pour le test
-        sync = True
+        nb_epochs = 4000 # Réduit à 1 epoch pour le test
+        sync =False
         print("=== Mode Test ===")
     else:
         # Configuration de base complète
@@ -25,7 +25,7 @@ if __name__ == "__main__":
         config_dict = {
             'dataset_path': "data/all_sequences.csv",
             'seed': 42,
-            'batch_size': 64,
+            'batch_size': 128,
             'val_split': 0.8,
             'vocab_size': 17,
             'padding_idx': 0,
@@ -45,7 +45,7 @@ if __name__ == "__main__":
                 'params': {}
             },
             'continue_training': True,
-            'checkpoint_path': "checkpoints/checkpoint_model_15_32_500.pth",
+            'checkpoint_path' :'experiments/DO_NBL-15_DM-32_DFF-1024_TS-20250422-134740/model_state.pth',
             'auto_precision': False,
             'graph_name': f"DO_NBL-{nb_layers}_DM-{d_model}_DFF-{dim_feedforward}_baseline"
         }

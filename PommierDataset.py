@@ -1,10 +1,10 @@
 from torch.nn.utils.rnn import pad_sequence
-
+from collections import Counter
 import torch
 from torch.utils.data import Dataset,DataLoader
 import pandas as pd
 import itertools
-from collections import Counter
+
 from enums import Observation
 import numpy as np
 from sequences import terminal_fate, _generate_random_draw_sequence
@@ -37,18 +37,11 @@ class PommierDatasetDecoderOnly(Dataset):
         self.dataset["token_ids"] = self.dataset["tokens"].apply(
             lambda tokens: [self.token_to_id[token] for token in tokens]
         )
-
-        # Ajout du groupe (Observation + Year)
         self.dataset["group"] = self.dataset["Observation"] + "_" + self.dataset["Year"]
-
-        # Poids inversement proportionnels au groupe
-
         groups = self.dataset["group"].tolist()
         group_counts = Counter(groups)
         weights = [1.0 / group_counts[g] for g in groups]
         self.weights = weights
-
-
     def tokenize_row(self, row):
         """Tokenise une ligne du dataset."""
         tokens = []

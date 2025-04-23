@@ -85,270 +85,269 @@ def train_decoder_only(config_dict, trial=None):
     Returns:
         tuple: (modèle entraîné, chemin vers le dossier de l'expérience, perte de validation finale, run wandb)
     """
-    try:
-        # Extract parameters from config_dict
-        dataset_path = config_dict['dataset_path']
-        seed = config_dict['seed']
-        batch_size = config_dict['batch_size']
-        val_split = config_dict['val_split']
-        vocab_size = config_dict['vocab_size']
-        padding_idx = config_dict['padding_idx']
-        n_head = config_dict['n_head']
-        d_model = config_dict['d_model']
-        nb_layers = config_dict['nb_layers']
-        lr = config_dict['lr']
-        nb_epoch = config_dict['nb_epoch']
-        dim_feedforward = config_dict['dim_feedforward']
-        dynamic = config_dict['dynamic']
-        scheduler_config = config_dict['scheduler']
-        early_stopping_config = config_dict['early_stopping']
-        continue_training = config_dict['continue_training']
-        checkpoint_path = config_dict['checkpoint_path']
-        auto_precision = config_dict['auto_precision']
 
-        # Set seeds for reproducibility
-        torch.manual_seed(seed)
-        np.random.seed(seed)
-        torch.cuda.manual_seed(seed)
+    # Extract parameters from config_dict
+    dataset_path = config_dict['dataset_path']
+    seed = config_dict['seed']
+    batch_size = config_dict['batch_size']
+    val_split = config_dict['val_split']
+    vocab_size = config_dict['vocab_size']
+    padding_idx = config_dict['padding_idx']
+    n_head = config_dict['n_head']
+    d_model = config_dict['d_model']
+    nb_layers = config_dict['nb_layers']
+    lr = config_dict['lr']
+    nb_epoch = config_dict['nb_epoch']
+    dim_feedforward = config_dict['dim_feedforward']
+    dynamic = config_dict['dynamic']
+    scheduler_config = config_dict['scheduler']
+    early_stopping_config = config_dict['early_stopping']
+    continue_training = config_dict['continue_training']
+    checkpoint_path = config_dict['checkpoint_path']
+    auto_precision = config_dict['auto_precision']
 
-        # Device configuration
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Set seeds for reproducibility
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    torch.cuda.manual_seed(seed)
 
-        # Generate a timestamp for the experiment name
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        exp_name = (
-            f"DO_NBL-{nb_layers}_DM-{d_model}_DFF-{dim_feedforward}_TS-{timestamp}"
-        )
-        experiment_path = Path("experiments") / exp_name
-        experiment_path.mkdir(parents=True, exist_ok=True)
-        print(str(experiment_path / "config.json"))
-        create_config_file(experiment_path / "config.json", config_dict)
+    # Device configuration
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # Dataset creation
-        dataset = PommierDatasetDecoderOnly(dataset_path)
-        sampler = WeightedRandomSampler(weights=dataset.weights, num_samples=len(dataset), replacement=True)
+    # Generate a timestamp for the experiment name
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    exp_name = (
+        f"DO_NBL-{nb_layers}_DM-{d_model}_DFF-{dim_feedforward}_TS-{timestamp}"
+    )
+    experiment_path = Path("experiments") / exp_name
+    experiment_path.mkdir(parents=True, exist_ok=True)
+    print(str(experiment_path / "config.json"))
+    create_config_file(experiment_path / "config.json", config_dict)
 
+    # Dataset creation
+    dataset = PommierDatasetDecoderOnly(dataset_path)
 
 
-        train_size = int(val_split * len(dataset))
-        val_size = len(dataset) - train_size
-        trian_spit, val_split = random_split(dataset, [train_size, val_size])
 
-        train_loader = DataLoader(trian_spit,sampler=sampler, batch_size=batch_size, collate_fn=collate_fn_decoder_only)
-        val_loader = DataLoader(val_split, batch_size=batch_size, shuffle=False, collate_fn=collate_fn_decoder_only)
 
-        # Model creation
-        model = TransformerDecoderOnly(
-            vocab_size=vocab_size,
-            d_model=d_model,
-            n_head=n_head,
-            num_decoder_layers=nb_layers,
-            padding_idx=padding_idx,
-            dim_feedforward=dim_feedforward
-        )
-        model.to(device)
-        if continue_training:
-            model.load_state_dict(torch.load(checkpoint_path)["model_state_dict"])
+    train_size = int(val_split * len(dataset))
+    val_size = len(dataset) - train_size
+    trian_spit, val_split = random_split(dataset, [train_size, val_size])
 
-        optimizer = torch.optim.Adam(model.parameters(), lr)
+    # Recalcul des groupes uniquement sur le split d'entraînement
+    train_groups = [dataset.dataset.iloc[i]["group"] for i in trian_spit.indices]
 
-        # Scheduler creation (if applicable)
-        scheduler = None
-        if scheduler_config['name'] == "cyclical":
-            scheduler = CyclicLR(optimizer, **scheduler_config['params'])
-        elif scheduler_config['name'] == "ReduceOnPlatau":
-            scheduler = ReduceLROnPlateau(optimizer, **scheduler_config['params'])
+    from collections import Counter
+    group_counts = Counter(train_groups)
+    train_weights = [1.0 / group_counts[g] for g in train_groups]
 
-        # Early stopping setup (if applicable)
-        early_stopping = None
-        if early_stopping_config['name'] == "patience":
-            early_stopping = EarlyStopping(**early_stopping_config['params'])
+    sampler = WeightedRandomSampler(weights=train_weights, num_samples=len(trian_spit), replacement=True)
+    train_loader = DataLoader(trian_spit, sampler=sampler, shuffle=False, batch_size=batch_size, collate_fn=collate_fn_decoder_only)
+    val_loader = DataLoader(val_split, batch_size=batch_size, shuffle=False, collate_fn=collate_fn_decoder_only)
 
-        # Calculate the number of trainable parameters and model size
-        num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        size_mb = model_size_mb(model)
+    # Model creation
+    model = TransformerDecoderOnly(
+        vocab_size=vocab_size,
+        d_model=d_model,
+        n_head=n_head,
+        num_decoder_layers=nb_layers,
+        padding_idx=padding_idx,
+        dim_feedforward=dim_feedforward
+    )
+    model.to(device)
+    if continue_training:
+        model.load_state_dict(torch.load(checkpoint_path,weights_only = True)["model_state_dict"])
 
-        # Initialize wandb for experiment tracking
-        wandb_config = {
-            "learning_rate": lr,
-            "val_split": config_dict['val_split'],
-            "architecture": exp_name,
-            "dataset": "100 sample de chaque type",
-            "batch_size": batch_size,
-            "dimension_model": d_model,
-            "number_of_heads": n_head,
-            "epochs": nb_epoch,
-            "dynamic": dynamic,
-            "num_layers": nb_layers,
-            "num_params": num_params,
-            "dim_feedforward": dim_feedforward,
-            "scheduler": scheduler_config['name'],
-            "scheduler_params": (
-                scheduler_config['params'] if scheduler_config['name'] != "None"
-                else None
-            ),
-            "early_stopping": early_stopping_config['name'],
-            "early_stopping_params": (
-                early_stopping_config['params'] if early_stopping_config['name'] != "None"
-                else None
-            ),
-            "auto_precision": auto_precision
+    optimizer = torch.optim.Adam(model.parameters(), lr)
 
-        }
-        wandb.init(
-            name=exp_name,
-            project="Topologie-Pommiers-Original-Data",
-            config=wandb_config,
-            mode="offline"
-        )
+    # Scheduler creation (if applicable)
+    scheduler = None
+    if scheduler_config['name'] == "cyclical":
+        scheduler = CyclicLR(optimizer, **scheduler_config['params'])
+    elif scheduler_config['name'] == "ReduceOnPlatau":
+        scheduler = ReduceLROnPlateau(optimizer, **scheduler_config['params'])
 
-        print(f"Nombre de paramètres : {num_params:,}")
-        print(f"Le modèle occupe environ {size_mb:.2f} Mo en mémoire.")
-        criterion = torch.nn.CrossEntropyLoss(ignore_index=padding_idx)
+    # Early stopping setup (if applicable)
+    early_stopping = None
+    if early_stopping_config['name'] == "patience":
+        early_stopping = EarlyStopping(**early_stopping_config['params'])
 
-        # Setup GradScaler si auto_precision est activé
-        scaler = torch.amp.GradScaler(device=device) if auto_precision else None
+    # Calculate the number of trainable parameters and model size
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    size_mb = model_size_mb(model)
 
-        # Training loop
-        global_batch = 0
-        best_val_loss = float('inf')
-        val_losses = []  # Liste pour stocker les pertes de validation
-        for epoch in tqdm(range(nb_epoch), colour="green"):
-            model.train()
-            total_train_loss = 0
-            for input_seq, target_seq in tqdm(
-                train_loader,
-                desc=f"Epoch {epoch} - Train",
-                colour="green"
-            ):
-                try:
-                    if device == "cuda":
-                        mem_alloc = torch.cuda.memory_allocated(device) / 1024**2  # en Mo
-                        # wandb.log({"gpu_memory_allocated_MB": mem_alloc}, step=global_batch)
-                    input_seq = input_seq.to(device)
-                    target_seq = target_seq.to(device)
-                    padding_mask = (input_seq == 0).to(torch.bool).to(model.device)
+    # Initialize wandb for experiment tracking
+    wandb_config = {
+        "learning_rate": lr,
+        "val_split": config_dict['val_split'],
+        "architecture": exp_name,
+        "dataset": "100 sample de chaque type",
+        "batch_size": batch_size,
+        "dimension_model": d_model,
+        "number_of_heads": n_head,
+        "epochs": nb_epoch,
+        "dynamic": dynamic,
+        "num_layers": nb_layers,
+        "num_params": num_params,
+        "dim_feedforward": dim_feedforward,
+        "scheduler": scheduler_config['name'],
+        "scheduler_params": (
+            scheduler_config['params'] if scheduler_config['name'] != "None"
+            else None
+        ),
+        "early_stopping": early_stopping_config['name'],
+        "early_stopping_params": (
+            early_stopping_config['params'] if early_stopping_config['name'] != "None"
+            else None
+        ),
+        "auto_precision": auto_precision
 
-                    if auto_precision:
-                        with torch.amp.autocast(device_type=device):
-                            logits = model(input_seq, padding_mask)
-                            logits_trim = logits[:, 2:, :]
-                            targets_trim = target_seq[:, 2:]
-                            logits_flat = logits_trim.reshape(-1, logits_trim.size(-1))
-                            target_flat = targets_trim.reshape(-1)
-                            loss = criterion(logits_flat, target_flat)
-                        optimizer.zero_grad()
-                        scaler.scale(loss).backward()
-                        scaler.step(optimizer)
-                        scaler.update()
-                    else:
+    }
+    wandb.init(
+        name=exp_name,
+        project="Topologie-Pommiers-Original-Data",
+        config=wandb_config,
+        mode="offline"
+    )
+
+    print(f"Nombre de paramètres : {num_params:,}")
+    print(f"Le modèle occupe environ {size_mb:.2f} Mo en mémoire.")
+    criterion = torch.nn.CrossEntropyLoss(ignore_index=padding_idx)
+
+    # Setup GradScaler si auto_precision est activé
+    scaler = torch.amp.GradScaler(device=device) if auto_precision else None
+
+    # Training loop
+    global_batch = 0
+    best_val_loss = float('inf')
+    val_losses = []  # Liste pour stocker les pertes de validation
+    for epoch in tqdm(range(nb_epoch), colour="green"):
+        model.train()
+        total_train_loss = 0
+        for input_seq, target_seq in tqdm(
+            train_loader,
+            desc=f"Epoch {epoch} - Train",
+            colour="green"
+        ):
+            try:
+                if device == "cuda":
+                    mem_alloc = torch.cuda.memory_allocated(device) / 1024**2  # en Mo
+                    # wandb.log({"gpu_memory_allocated_MB": mem_alloc}, step=global_batch)
+                input_seq = input_seq.to(device)
+                target_seq = target_seq.to(device)
+                padding_mask = (input_seq == 0).to(torch.bool).to(model.device)
+
+                if auto_precision:
+                    with torch.amp.autocast(device_type=device):
                         logits = model(input_seq, padding_mask)
                         logits_trim = logits[:, 2:, :]
                         targets_trim = target_seq[:, 2:]
                         logits_flat = logits_trim.reshape(-1, logits_trim.size(-1))
                         target_flat = targets_trim.reshape(-1)
                         loss = criterion(logits_flat, target_flat)
-                        optimizer.zero_grad()
-                        loss.backward()
-                        optimizer.step()
+                    optimizer.zero_grad()
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    logits = model(input_seq, padding_mask)
+                    logits_trim = logits[:, 2:, :]
+                    targets_trim = target_seq[:, 2:]
+                    logits_flat = logits_trim.reshape(-1, logits_trim.size(-1))
+                    target_flat = targets_trim.reshape(-1)
+                    loss = criterion(logits_flat, target_flat)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
 
-                    if scheduler is not None and scheduler_config['name'] == "cyclical":
-                        scheduler.step()
+                if scheduler is not None and scheduler_config['name'] == "cyclical":
+                    scheduler.step()
 
-                    total_train_loss += loss.item()
+                total_train_loss += loss.item()
 
-                    # Log le learning rate à chaque batch
-                    current_lr = optimizer.param_groups[0]['lr']
-                    # wandb.log({"batch_learning_rate": current_lr}, step=global_batch)
-                    global_batch += 1
+                # Log le learning rate à chaque batch
+                current_lr = optimizer.param_groups[0]['lr']
+                # wandb.log({"batch_learning_rate": current_lr}, step=global_batch)
+                global_batch += 1
 
+            except RuntimeError as e:
+                if "out of memory" in str(e):
+                    if hasattr(torch.cuda, 'empty_cache'):
+                        torch.cuda.empty_cache()
+                    raise GPUOutOfMemoryError(f"Erreur de mémoire GPU lors de l'entraînement. Configuration: {config_dict}")
+                raise e
+
+        model.eval()
+        total_eval_loss = 0
+        with torch.no_grad():
+            for input_seq, target_seq in tqdm(
+                val_loader,
+                desc=f"Epoch {epoch} - Val",
+                colour="blue"
+            ):
+                try:
+                    input_seq = input_seq.to(device)
+                    target_seq = target_seq.to(device)
+                    padding_mask = (input_seq == 0).to(torch.bool).to(model.device)
+                    logits = model(input_seq, padding_mask)
+                    logits_trim = logits[:, 2:, :]
+                    targets_trim = target_seq[:, 2:]
+                    logits_flat = logits_trim.reshape(-1, logits_trim.size(-1))
+                    target_flat = targets_trim.reshape(-1)
+                    loss = criterion(logits_flat, target_flat)
+                    total_eval_loss += loss.item()
                 except RuntimeError as e:
                     if "out of memory" in str(e):
                         if hasattr(torch.cuda, 'empty_cache'):
                             torch.cuda.empty_cache()
-                        raise GPUOutOfMemoryError(f"Erreur de mémoire GPU lors de l'entraînement. Configuration: {config_dict}")
+                        raise GPUOutOfMemoryError(f"Erreur de mémoire GPU lors de la validation. Configuration: {config_dict}")
                     raise e
 
-            model.eval()
-            total_eval_loss = 0
-            with torch.no_grad():
-                for input_seq, target_seq in tqdm(
-                    val_loader,
-                    desc=f"Epoch {epoch} - Val",
-                    colour="blue"
-                ):
-                    try:
-                        input_seq = input_seq.to(device)
-                        target_seq = target_seq.to(device)
-                        padding_mask = (input_seq == 0).to(torch.bool).to(model.device)
-                        logits = model(input_seq, padding_mask)
-                        logits_trim = logits[:, 2:, :]
-                        targets_trim = target_seq[:, 2:]
-                        logits_flat = logits_trim.reshape(-1, logits_trim.size(-1))
-                        target_flat = targets_trim.reshape(-1)
-                        loss = criterion(logits_flat, target_flat)
-                        total_eval_loss += loss.item()
-                    except RuntimeError as e:
-                        if "out of memory" in str(e):
-                            if hasattr(torch.cuda, 'empty_cache'):
-                                torch.cuda.empty_cache()
-                            raise GPUOutOfMemoryError(f"Erreur de mémoire GPU lors de la validation. Configuration: {config_dict}")
-                        raise e
+        avg_train_loss = total_train_loss / len(train_loader)
+        avg_val_loss = total_eval_loss / len(val_loader)
 
-            avg_train_loss = total_train_loss / len(train_loader)
-            avg_val_loss = total_eval_loss / len(val_loader)
+        val_losses.append(avg_val_loss)  # Stockage de la perte de validation
 
-            val_losses.append(avg_val_loss)  # Stockage de la perte de validation
+        # Si on est dans un trial Optuna, on enregistre la perte de validation à chaque époque
+        if trial is not None:
+            trial.report(avg_val_loss, step=epoch)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
 
-            # Si on est dans un trial Optuna, on enregistre la perte de validation à chaque époque
-            if trial is not None:
-                trial.report(avg_val_loss, step=epoch)
-                if trial.should_prune():
-                    raise optuna.TrialPruned()
+            # Mise à jour de la meilleure perte de validation
+            best_val_loss = min(best_val_loss, avg_val_loss)
 
-                # Mise à jour de la meilleure perte de validation
-                best_val_loss = min(best_val_loss, avg_val_loss)
+        wandb.log({
+            "train_loss_epochs": avg_train_loss,
+            "val_loss_epochs": avg_val_loss
+        })
+        tqdm.write(
+            f"[INFO] Epoch {epoch} : train loss unweighted = {avg_train_loss:.4f}, "
+            f"val loss unweighted = {avg_val_loss:.4f}"
+        )
+        if scheduler is not None and scheduler_config['name'] == "ReduceOnPlatau":
+            scheduler.step(avg_val_loss)
 
-            wandb.log({
-                "train_loss_epochs": avg_train_loss,
-                "val_loss_epochs": avg_val_loss
-            })
-            tqdm.write(
-                f"[INFO] Epoch {epoch} : train loss unweighted = {avg_train_loss:.4f}, "
-                f"val loss unweighted = {avg_val_loss:.4f}"
-            )
-            if scheduler is not None and scheduler_config['name'] == "ReduceOnPlatau":
-                scheduler.step(avg_val_loss)
+        if early_stopping:
+            early_stopping(avg_val_loss, model)
+            if early_stopping.early_stop:
+                print("Early stopping triggered")
+                break
 
-            if early_stopping:
-                early_stopping(avg_val_loss, model)
-                if early_stopping.early_stop:
-                    print("Early stopping triggered")
-                    break
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict()
+    }, experiment_path / "model_state.pth")
 
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict()
-        }, experiment_path / "model_state.pth")
+    # Calcul de la moyenne sur les 20 dernières époques
+    last_20_epochs_val_loss = sum(val_losses[-20:]) / min(20, len(val_losses))
 
-        # Calcul de la moyenne sur les 20 dernières époques
-        last_20_epochs_val_loss = sum(val_losses[-20:]) / min(20, len(val_losses))
+    # Si on est dans un trial Optuna, on utilise la moyenne des 20 dernières époques
+    final_val_loss = last_20_epochs_val_loss
 
-        # Si on est dans un trial Optuna, on utilise la moyenne des 20 dernières époques
-        final_val_loss = last_20_epochs_val_loss
+    return model, experiment_path, final_val_loss, wandb.run
 
-        return model, experiment_path, final_val_loss, wandb.run
 
-    except GPUOutOfMemoryError as e:
-        print(f"[ERROR] {e}")
-        if hasattr(torch.cuda, 'empty_cache'):
-            torch.cuda.empty_cache()
-        return None
-    except Exception as e:
-        print(f"[ERROR] Erreur inattendue lors de l'entraînement: {e}")
-        if hasattr(torch.cuda, 'empty_cache'):
-            torch.cuda.empty_cache()
-        return None
 
 def find_wandb_run_path(run_id):
     """
@@ -401,7 +400,7 @@ def train_generate_validate_pipeline(config_dict, trial=None, sync_wandb=False):
     validator = Validator(model, device, token_to_id=vocab_to_id, validation_folder_path=experiment_path)
     st = time()
     try:
-        validator.generate_data(500, experiment_path / "generated_dataset.csv", end_toks_list=[7, 8, 9, 10, 11])
+        validator.generate_data(10000, experiment_path / "generated_dataset.csv", end_toks_list=[7, 8, 9, 10, 11])
     except ValidationError as e:
         print(f"[ERROR] {e}")
         return None

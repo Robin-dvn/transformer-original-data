@@ -580,11 +580,15 @@ if __name__ == "__main__":
     validator = SimpleValidator()
     validator.show = True
     dataset_paths = [
-        "generated_dataset.csv",
+        "experiments/DO_NBL-15_DM-32_DFF-1024_TS-20250422-152340/generated_dataset.csv",
+        "/home/robindvn/Documents/Stage-pommiers/transformer-original-data/experiments/DO_NBL-15_DM-32_DFF-1024_TS-20250422-091237_optuna/generated_dataset.csv",
+        "/home/robindvn/Documents/Stage-pommiers/transformer-original-data/experiments/DO_NBL-15_DM-32_DFF-1024_TS-20250422-145506/generated_dataset.csv",
         "markov_python_generated_dataset10000.csv",
         'data/all_sequences.csv'
     ]
     dataset_names = [
+        "fine_tuned",
+        "transformer_markov",
         "exp trans",
         "markov",
         "original_data"

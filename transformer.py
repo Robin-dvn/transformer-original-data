@@ -95,14 +95,14 @@ class TransformerDecoderOnly(nn.Module):
         out = self.fc_out(out_trans)
         if generating:
             out = out[:,:,2:12]
-            print(out.size())
+            # print(out.size())
         return out
-    def generate_batch(self, input_tokens, sos_idx, device, end_toks_list, max_length=100, temperature=1, batch_size=None, batch_symmetry=True):
+    def generate_batch(self, input_tokens, sos_idx, device, end_toks_list, max_length=100, temperature=1, batch_size=None, batch_symmetry=False):
         self.eval()
-        self.device = 'cpu'
+        # self.device = 'cpu'
         device = self.device
-        input_tokens = input_tokens.cpu()
-        self.cpu()
+        # input_tokens = input_tokens.cpu()
+        # self.cpu()
         if batch_size is None:
             batch_size = input_tokens.size(0)
 
@@ -140,9 +140,9 @@ class TransformerDecoderOnly(nn.Module):
             probs = torch.where(mask, probs, torch.tensor(0.0, device=probs.device))
             probs = probs / probs.sum(dim=-1, keepdim=True)
             probs = torch.where(mask, probs, torch.tensor(0.0, device=probs.device))
-            print(probs[:5])
+            # print(probs[:5])
 
-            print(probs[-5:])
+            # print(probs[-5:])
             next_tokens = torch.multinomial(probs, 1)+2
 
 
@@ -156,7 +156,7 @@ class TransformerDecoderOnly(nn.Module):
                         token = next_tokens[idx].item()
 
                         prob = probs[idx, token-2].item()
-                        print(f"[Token invalide] ligne {idx.item()} : token={token}, proba={prob:.6f}")
+                        # print(f"[Token invalide] ligne {idx.item()} : token={token}, proba={prob:.6f}")
 
                     next_tokens = torch.multinomial(probs[:,:5], 1)+2
                     nb_max += 1
@@ -171,7 +171,7 @@ class TransformerDecoderOnly(nn.Module):
                 for idx in torch.nonzero(mask_invalid, as_tuple=False):
                     token = next_tokens[idx].item()
                     prob = probs[idx, token-2].item()
-                    print(f"[Token invalide] ligne {idx.item()} : token={token}, proba={prob:.6f}")
+                    # print(f"[Token invalide] ligne {idx.item()} : token={token}, proba={prob:.6f}")
                 next_tokens = torch.multinomial(probs, 1)+2
                 nb_max += 1
                 if nb_max > 10:
