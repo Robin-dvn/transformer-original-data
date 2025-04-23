@@ -13,3 +13,4 @@ model_weights/
 wandb/
 experiments/
 singularity_workspace/
+checkpoints/
