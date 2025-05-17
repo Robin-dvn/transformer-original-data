@@ -448,6 +448,8 @@ def generate_data(model, device, token_to_id, nb_samples, output_path, end_toks_
     id_to_token = {v: k for k, v in token_to_id.items()}
     sequences_generees = []
     decoder_only = True
+    # the two ranges are for the type and year
+    # see the dictionary for the mapping
     for type in tqdm(range(9, 11)):
         for year in range(12, 17):
             if nb_samples > 1000:
