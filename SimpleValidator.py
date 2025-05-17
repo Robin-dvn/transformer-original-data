@@ -654,15 +654,13 @@ def main():
 
     # Example paths (relative paths are preferred over absolute)
     dataset_paths = [
-        "./experiments/DO_NBL-15_DM-32_DFF-1024_TS-20250422-091237_optuna/generated_dataset.csv",
-        "./experiments/DO_NBL-15_DM-32_DFF-1024_TS-20250423-143325/generated_dataset.csv",
+
         "./markov_python_generated_dataset10000.csv",
         "./data/all_sequences.csv"
     ]
 
     dataset_names = [
-        "transformer_model_1",
-        "transformer_model_2",
+
         "markov",
         "original_data"
     ]

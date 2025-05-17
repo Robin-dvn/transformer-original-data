@@ -389,6 +389,8 @@ def train_generate_validate_pipeline(config_dict, trial=None, sync_wandb=False):
     print(f"[INFO] Training time in hours: {(et-st)/3600}")
 
     # Device configuration
+    print("device available: ", torch.cuda.is_available())
+    print("device name: ", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU")
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.eval().to(device=device)
     vocab_to_id = {
