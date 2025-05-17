@@ -1,25 +1,24 @@
 from pipeline import train_generate_validate_pipeline
 
 if __name__ == "__main__":
-    # Variable pour contrôler si on fait un test ou une version complète
-    test = True  # Mettre à False pour la version complète
+    # Variable to control whether to run a test or a full version
+    test = True  # Set to False for the full version
 
     if test:
-        # Configuration de base pour test
-        configs = [(15, 32, 1024)]  # Uniquement la première configuration pour le test
-        nb_epochs = 1 # Réduit à 1 epoch pour le test
-        sync =False
-        print("=== Mode Test ===")
+        # Basic configuration for testing
+        configs = [(15, 32, 1024)]  # Only the first configuration for testing
+        nb_epochs = 1  # Reduced to 1 epoch for testing
+        sync = False
+        print("=== Test Mode ===")
     else:
-        # Configuration de base complète
+        # Full basic configuration
         configs = [
-            # Configuration de base avec d_model = 32
+            # Basic configuration with d_model = 32
             (15, 32, 1024),  # NBL-15_DM-32_DFF-1024
-
         ]
         nb_epochs = 2800
         sync = True
-        print("=== Mode Complet ===")
+        print("=== Full Mode ===")
 
     for nb_layers, d_model, dim_feedforward in configs:
         config_dict = {
@@ -49,13 +48,13 @@ if __name__ == "__main__":
             'auto_precision': False,
             'graph_name': f"DO_NBL-{nb_layers}_DM-{d_model}_DFF-{dim_feedforward}_baseline"
         }
-        #Essai baseline
-        print(f"=== {'Test' if test else 'Essai'} baseline ===")
+        # Baseline training example
+        print(f"=== {'Test' if test else 'Trial'} baseline ===")
         validator_baseline = train_generate_validate_pipeline(config_dict,sync_wandb=sync)
 
-        ################## Exemples d'entrainements #####################
+        ################## Training examples #####################
 
-        # # Essai cyclical learning rate
+        # # Example: cyclical learning rate
         # config_cyclical = config_dict.copy()
         # config_cyclical["scheduler"] = {
         #     "name": "cyclical",
@@ -63,10 +62,10 @@ if __name__ == "__main__":
         # }
         # config_cyclical["graph_name"] = f"DO_NBL-{nb_layers}_DM-{d_model}_DFF-{dim_feedforward}_cyclical"
 
-        # print(f"=== {'Test' if test else 'Essai'} cyclical learning rate ===")
+        # print(f"=== {'Test' if test else 'Trial'} cyclical learning rate ===")
         # validator_cyclical = train_generate_validate_pipeline(config_cyclical,sync_wandb=sync)
 
-        # #Essai de early stopping
+        # # Example: early stopping
         # config_early = config_dict.copy()
         # config_early["scheduler"] = {
         #     "name": "None",
@@ -77,5 +76,5 @@ if __name__ == "__main__":
         #     "params": {"patience": 100, "verbose": True, "delta": 0.005}
         # }
         # config_early["graph_name"] = f"DO_NBL-{nb_layers}_DM-{d_model}_DFF-{dim_feedforward}_early"
-        # print(f"=== {'Test' if test else 'Essai'} early stopping ===")
+        # print(f"=== {'Test' if test else 'Trial'} early stopping ===")
         # validator_early = train_generate_validate_pipeline(config_early,sync_wandb=sync)

@@ -1,13 +1,12 @@
 """
-Module de pipelines pour l'entraînement, la génération et la validation de modèles Transformer.
-Ce module contient les fonctions principales pour gérer le workflow complet d'apprentissage.
+Pipeline module for training, generation, and validation of Transformer models.
+This module contains the main functions to manage the complete learning workflow.
 """
 
 
 # Standard library imports
 import json
 import subprocess
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from time import time
@@ -32,37 +31,37 @@ from transformer import TransformerDecoderOnly
 from Validator import Validator
 from ValidationError import ValidationError, GPUOutOfMemoryError
 
+
 def model_size_mb(model):
     """
-    Calcule la taille du modèle en mégaoctets.
+    Calculate the size of a PyTorch model in megabytes.
 
     Args:
-        model: Le modèle PyTorch dont on veut calculer la taille
+        model: The PyTorch model to calculate the size for.
 
     Returns:
-        float: Taille du modèle en mégaoctets
+        float: Model size in megabytes.
     """
     total_size = sum(p.numel() * p.element_size() for p in model.parameters() if p.requires_grad)
     return total_size / (1024 ** 2)
 
 
-
 def create_config_file(file_path, config_dict):
     """
-    Crée un fichier de configuration JSON à partir d'un dictionnaire.
+    Create a JSON configuration file from a dictionary.
 
     Args:
-        file_path (str ou Path): Chemin vers le fichier où la configuration sera sauvegardée
-        config_dict (dict): Dictionnaire contenant les paramètres de configuration
+        file_path (str or Path): Path to the file where the configuration will be saved.
+        config_dict (dict): Dictionary containing configuration parameters.
 
     Raises:
-        IOError: Si le fichier ne peut pas être créé ou écrit
-        TypeError: Si config_dict n'est pas un dictionnaire
+        IOError: If the file cannot be created or written.
+        TypeError: If config_dict is not a dictionary.
     """
     if not isinstance(config_dict, dict):
-        raise TypeError("config_dict doit être un dictionnaire")
+        raise TypeError("config_dict must be a dictionary")
 
-    # Conversion des objets Path en chaînes de caractères pour la sérialisation JSON
+    # Convert Path objects to strings for JSON serialization
     config_dict_serializable = {
         k: str(v) if isinstance(v, Path) else v
         for k, v in config_dict.items()
@@ -72,18 +71,19 @@ def create_config_file(file_path, config_dict):
         with open(file_path, 'w', encoding='utf-8') as json_file:
             json.dump(config_dict_serializable, json_file, indent=4)
     except IOError as e:
-        raise IOError(f"Impossible de créer le fichier de configuration: {e}") from e
+        raise IOError(f"Could not create configuration file: {e}") from e
+
 
 def train_decoder_only(config_dict, trial=None):
     """
-    Entraîne un modèle transformer en mode decoder-only selon la configuration passée.
+    Train a decoder-only transformer model according to the provided configuration.
 
     Args:
-        config_dict (dict): Dictionnaire contenant les paramètres de configuration
-        trial (optuna.Trial, optional): Trial Optuna pour l'optimisation des hyperparamètres
+        config_dict (dict): Dictionary containing configuration parameters.
+        trial (optuna.Trial, optional): Optuna trial for hyperparameter optimization.
 
     Returns:
-        tuple: (modèle entraîné, chemin vers le dossier de l'expérience, perte de validation finale, run wandb)
+        tuple: (trained model, experiment folder path, final validation loss, wandb run)
     """
 
     # Extract parameters from config_dict
@@ -351,35 +351,36 @@ def train_decoder_only(config_dict, trial=None):
 
 def find_wandb_run_path(run_id):
     """
-    Trouve le chemin du dossier wandb contenant l'ID de la run spécifié.
+    Find the path to the wandb folder containing the specified run ID.
 
     Args:
-        run_id: L'ID de la run wandb
+        run_id: The wandb run ID.
 
     Returns:
-        str: Le chemin complet du dossier de la run
+        str: The full path to the run folder.
     """
     wandb_dir = Path("wandb")
     if not wandb_dir.exists():
-        raise FileNotFoundError("Le dossier wandb n'existe pas")
+        raise FileNotFoundError("The wandb directory does not exist")
 
     for run_dir in wandb_dir.iterdir():
         if run_dir.is_dir() and str(run_id) in run_dir.name:
             return str(run_dir)
 
-    raise FileNotFoundError(f"Aucun dossier trouvé contenant l'ID {run_id}")
+    raise FileNotFoundError(f"No folder found containing ID {run_id}")
+
 
 def train_generate_validate_pipeline(config_dict, trial=None, sync_wandb=False):
     """
-    Pipeline pour entraîner, générer et valider un modèle en utilisant une configuration passée en dictionnaire.
+    Pipeline to train, generate, and validate a model using a configuration dictionary.
 
     Args:
-        config_dict (dict): Dictionnaire contenant les paramètres de configuration.
-        trial (optuna.Trial, optional): Trial Optuna pour l'optimisation des hyperparamètres.
-        sync_wandb (bool, optional): Si True, synchronise les données avec wandb en ligne à la fin de la run.
+        config_dict (dict): Dictionary containing configuration parameters.
+        trial (optuna.Trial, optional): Optuna trial for hyperparameter optimization.
+        sync_wandb (bool, optional): If True, synchronizes wandb data online at the end of the run.
 
     Returns:
-        Validator : Instance de la classe Validator utilisée pour générer et valider les données.
+        Validator: Instance of the Validator class used to generate and validate data.
     """
     # Train the model
     st = time()

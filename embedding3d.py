@@ -455,7 +455,9 @@ class EmbeddingVisualizer:
 
 
 def main():
-    """Main function to run the embedding visualization"""
+    """
+    Main function to run the embedding visualization.
+    """
 
     # Configuration
     weights_path = "experiments/DO_NBL-15_DM-32_DFF-1024_TS-20250422-091237_optuna/model_state.pth"  # Adjust to your file path
