@@ -1,3 +1,7 @@
+"""
+This module defines the Transformer model, including Positional Encoding, 
+Decoder-Only Transformer Layer, and the main TransformerDecoderOnly model.
+"""
 from ValidationError import ValidationError
 import math
 import torch

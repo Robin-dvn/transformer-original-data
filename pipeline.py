@@ -28,7 +28,7 @@ from PommierDataset import (
     collate_fn_decoder_only,
 )
 from transformer import TransformerDecoderOnly
-from Validator import Validator
+
 from ValidationError import ValidationError, GPUOutOfMemoryError
 
 
@@ -134,7 +134,7 @@ def train_decoder_only(config_dict, trial=None):
     val_size = len(dataset) - train_size
     trian_spit, val_split = random_split(dataset, [train_size, val_size])
 
-    # Recalcul des groupes uniquement sur le split d'entraînement
+    # Recalculate groups only on the training split
     train_groups = [dataset.dataset.iloc[i]["group"] for i in trian_spit.indices]
 
     from collections import Counter
@@ -210,17 +210,17 @@ def train_decoder_only(config_dict, trial=None):
         mode="offline"
     )
 
-    print(f"Nombre de paramètres : {num_params:,}")
-    print(f"Le modèle occupe environ {size_mb:.2f} Mo en mémoire.")
+    print(f"Number of parameters : {num_params:,}")
+    print(f"The model occupies approximately {size_mb:.2f} MB in memory.")
     criterion = torch.nn.CrossEntropyLoss(ignore_index=padding_idx)
 
-    # Setup GradScaler si auto_precision est activé
+    # Setup GradScaler if auto_precision is enabled
     scaler = torch.amp.GradScaler(device=device) if auto_precision else None
 
     # Training loop
     global_batch = 0
     best_val_loss = float('inf')
-    val_losses = []  # Liste pour stocker les pertes de validation
+    val_losses = []  # List to store validation losses
     for epoch in tqdm(range(nb_epoch), colour="green"):
         model.train()
         total_train_loss = 0
@@ -231,7 +231,7 @@ def train_decoder_only(config_dict, trial=None):
         ):
             try:
                 if device == "cuda":
-                    mem_alloc = torch.cuda.memory_allocated(device) / 1024**2  # en Mo
+                    mem_alloc = torch.cuda.memory_allocated(device) / 1024**2  # in MB
                     # wandb.log({"gpu_memory_allocated_MB": mem_alloc}, step=global_batch)
                 input_seq = input_seq.to(device)
                 target_seq = target_seq.to(device)
@@ -265,7 +265,7 @@ def train_decoder_only(config_dict, trial=None):
 
                 total_train_loss += loss.item()
 
-                # Log le learning rate à chaque batch
+                # Log the learning rate at each batch
                 current_lr = optimizer.param_groups[0]['lr']
                 # wandb.log({"batch_learning_rate": current_lr}, step=global_batch)
                 global_batch += 1
@@ -274,7 +274,7 @@ def train_decoder_only(config_dict, trial=None):
                 if "out of memory" in str(e):
                     if hasattr(torch.cuda, 'empty_cache'):
                         torch.cuda.empty_cache()
-                    raise GPUOutOfMemoryError(f"Erreur de mémoire GPU lors de l'entraînement. Configuration: {config_dict}")
+                    raise GPUOutOfMemoryError(f"GPU memory error during training. Configuration: {config_dict}")
                 raise e
 
         model.eval()
@@ -300,21 +300,21 @@ def train_decoder_only(config_dict, trial=None):
                     if "out of memory" in str(e):
                         if hasattr(torch.cuda, 'empty_cache'):
                             torch.cuda.empty_cache()
-                        raise GPUOutOfMemoryError(f"Erreur de mémoire GPU lors de la validation. Configuration: {config_dict}")
+                        raise GPUOutOfMemoryError(f"GPU memory error during validation. Configuration: {config_dict}")
                     raise e
 
         avg_train_loss = total_train_loss / len(train_loader)
         avg_val_loss = total_eval_loss / len(val_loader)
 
-        val_losses.append(avg_val_loss)  # Stockage de la perte de validation
+        val_losses.append(avg_val_loss)  # Store validation loss
 
-        # Si on est dans un trial Optuna, on enregistre la perte de validation à chaque époque
+        # If in an Optuna trial, report validation loss at each epoch
         if trial is not None:
             trial.report(avg_val_loss, step=epoch)
             if trial.should_prune():
                 raise optuna.TrialPruned()
 
-            # Mise à jour de la meilleure perte de validation
+            # Update best validation loss
             best_val_loss = min(best_val_loss, avg_val_loss)
 
         wandb.log({
@@ -339,10 +339,10 @@ def train_decoder_only(config_dict, trial=None):
         'optimizer_state_dict': optimizer.state_dict()
     }, experiment_path / "model_state.pth")
 
-    # Calcul de la moyenne sur les 20 dernières époques
+    # Calculate the average over the last 20 epochs
     last_20_epochs_val_loss = sum(val_losses[-20:]) / min(20, len(val_losses))
 
-    # Si on est dans un trial Optuna, on utilise la moyenne des 20 dernières époques
+    # If in an Optuna trial, use the average of the last 20 epochs
     final_val_loss = last_20_epochs_val_loss
 
     return model, experiment_path, final_val_loss, wandb.run
@@ -386,7 +386,7 @@ def train_generate_validate_pipeline(config_dict, trial=None, sync_wandb=False):
     st = time()
     model, experiment_path, final_val_loss, wandb_run = train_decoder_only(config_dict, trial)
     et = time()
-    print(f"[INFO] le temps en heures pour l'entraînement est de : {(et-st)/3600}")
+    print(f"[INFO] Training time in hours: {(et-st)/3600}")
 
     # Device configuration
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -397,68 +397,94 @@ def train_generate_validate_pipeline(config_dict, trial=None, sync_wandb=False):
         'Y1': 12, 'Y2': 13, 'Y3': 14, 'Y4': 15, 'Y5': 16
     }
 
-    # Initialize the validator
-    validator = Validator(model, device, token_to_id=vocab_to_id, validation_folder_path=experiment_path)
     st = time()
     try:
-        validator.generate_data(10000, experiment_path / "generated_dataset.csv", end_toks_list=[7, 8, 9, 10, 11])
+        generate_data(model, device, vocab_to_id, 10000, experiment_path / "generated_dataset.csv", end_toks_list=[7, 8, 9, 10, 11])
     except ValidationError as e:
         print(f"[ERROR] {e}")
         return None
     et = time()
-    print(f"[INFO] le temps en secondes pour la génération est de : {et-st}")
-    # validator.load_data("out/markov_python_generated_dataset10000.csv")
-    # st = time()
-    # # validator.validation_pipeline("generated_dataset.csv", "generated_dataset_validation_stats.json", windows=False)
-    # et = time()
-    # print(f"[INFO] le temps en minutes pour la validation est de : {(et-st)/60}")
+    print(f"[INFO] Generation time in seconds: {et-st}")
 
-    # # Lecture des statistiques de validation
-    # with open(experiment_path / "generated_dataset_validation_stats.json", "r", encoding='utf-8') as f:
-    #     stats = json.load(f)
-
-    # # Calcul du nombre de paramètres du modèle
-    # num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    # # Stockage de la perte de validation et du nombre de paramètres dans le validator pour retour
-    # stats["final_val"] = final_val_loss
-    # stats["num_params"] = num_params
-
-    # with open(experiment_path / "generated_dataset_validation_stats.json", "w", encoding='utf-8') as f:
-    #     json.dump(stats, f)
-    # # Calcul des métriques globales
-    # metrics = validator.compute_metrics(stats)
-
-    # # Si on est dans un trial Optuna, on enregistre toutes les métriques
-    # if trial is not None:
-    #     # Enregistrement de la perte de validation finale (moyenne sur les 20 dernières époques)
-    #     trial.set_user_attr('final_val', final_val_loss)
-    #     trial.set_user_attr('num_params', num_params)
-
-    #     # Enregistrement des métriques de validation
-    #     for metric_name, (mean, std) in metrics.items():
-    #         if mean is not None:  # On n'enregistre que les métriques qui ont des valeurs
-    #             trial.set_user_attr(f'{metric_name}_mean', mean)
-    #             trial.set_user_attr(f'{metric_name}_std', std)
-
-    # # Fermeture de la run wandb avec ou sans synchronisation en ligne
-    # if sync_wandb:
-    #     # On termine d'abord la run en mode offline
-    #     wandb_run.finish(quiet=True)
-    #     # Puis on synchronise en ligne en utilisant l'ID unique de la run
-    #     print("[INFO] Synchronisation des données wandb en ligne...")
-    #     try:
-    #         run_path = find_wandb_run_path(wandb_run.id)
-    #         subprocess.run(
-    #             ["wandb", "sync", run_path],
-    #             check=True,
-    #             capture_output=True,
-    #             text=True
-    #         )
-    #     except (FileNotFoundError, subprocess.CalledProcessError) as e:
-    #         print(f"[WARNING] Erreur lors de la synchronisation wandb: {e}")
-    # else:
-    #     wandb_run.finish(quiet=True)
+    # Close wandb run with or without online synchronization
+    if sync_wandb:
+        # First, finish the run in offline mode
+        wandb_run.finish(quiet=True)
+        # Then, synchronize online using the unique run ID
+        print("[INFO] Synchronizing wandb data online...")
+        try:
+            run_path = find_wandb_run_path(wandb_run.id)
+            subprocess.run(
+                ["wandb", "sync", run_path],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
+            print(f"[WARNING] Error during wandb synchronization: {e}")
+    else:
+        wandb_run.finish(quiet=True)
 
     # return metrics["final_val"]
     return
+
+
+def generate_data(model, device, token_to_id, nb_samples, output_path, end_toks_list):
+    """
+    Generate data using the Transformer model and save to CSV.
+
+    Args:
+        model: The trained Transformer model.
+        device: The device to run the model on (e.g., 'cpu' or 'cuda').
+        token_to_id (dict): Mapping from token to id.
+        nb_samples (int): Number of samples to generate per (type, year) pair.
+        output_path (str or Path): Path to save the generated CSV.
+        end_toks_list (list): List of end token ids.
+    """
+    import torch
+    import pandas as pd
+    from tqdm import tqdm
+
+    id_to_token = {v: k for k, v in token_to_id.items()}
+    sequences_generees = []
+    decoder_only = True
+    for type in tqdm(range(9, 11)):
+        for year in range(12, 17):
+            if nb_samples > 1000:
+                for i in range(0, nb_samples, 1000):
+                    batch_size = min(1000, nb_samples - i)
+                    start_seq = torch.tensor([[type, year]] * batch_size, device=device)
+                    generated_seq = model.generate_batch(start_seq, 1, device, end_toks_list, batch_size=int(batch_size))
+                    if not decoder_only:
+                        sequences_generees.extend(torch.cat((start_seq, generated_seq[:, 1:]), dim=1).to('cpu').tolist())
+                    else:
+                        sequences_generees.extend(torch.cat((start_seq, generated_seq[:, 3:]), dim=1).to('cpu').tolist())
+            else:
+                start_seq = torch.tensor([[type, year]] * nb_samples, device=device)
+                generated_seq = model.generate_batch(start_seq, 1, device, end_toks_list, batch_size=nb_samples)
+                if not decoder_only:
+                    sequences_generees.extend(torch.cat((start_seq, generated_seq[:, 1:]), dim=1).to('cpu').tolist())
+                else:
+                    sequences_generees.extend(torch.cat((start_seq, generated_seq[:, 3:]), dim=1).to('cpu').tolist())
+
+    print(f"[INFO] Generated {len(sequences_generees)} sequences")
+    print(f"[INFO] converting to dataset: ")
+    data_generated = []
+    for seq in tqdm(sequences_generees):
+        datasetform = []
+        digits = ""
+        for item in seq:
+            if item in id_to_token:
+                if id_to_token[item].isdigit():
+                    digits += id_to_token[item]
+                    continue
+                if digits != "":
+                    datasetform.append(digits)
+                datasetform.append(id_to_token[item])
+                digits = ""
+                if item in end_toks_list and len(datasetform) != 1:
+                    break
+        data_generated.append(datasetform)
+    df = pd.DataFrame(data_generated, columns=["Observation", "Year", "Sequence", "Terminal Fate"])
+    print(f"[INFO] Saving to {output_path}")
+    df.to_csv(output_path, index=False)

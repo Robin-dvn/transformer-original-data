@@ -1,3 +1,7 @@
+"""
+This module contains the main class for the Pommier dataset used for training and validation.
+"""
+
 import itertools
 from collections import Counter
 
@@ -118,12 +122,9 @@ def collate_fn_decoder_only(batch):
     return inputs, targets
 
 if __name__ == "__main__":
+    static_dataset = PommierDatasetDecoderOnly("data/all_sequences.csv")
     # Example usage and test of the dataset and dataloader
     VAL_SPLIT = 0.8
-    vocab_to_id = {'<PAD>': 0, '<SOS>': 1, '0': 2, '1': 3, '2': 4, '3': 5, '4': 6, 'DORMANT': 7, 'FLORAL': 8, 'LARGE': 9, 'MEDIUM': 10, 'SMALL': 11, 'Y1': 12, 'Y2': 13, 'Y3': 14, 'Y4': 15, 'Y5': 16}
-
-    static_dataset = PommierDatasetDecoderOnly("data/all_sequences.csv")
-    # dataset = DecoderOnlyDynamicPommierDataset(vocab_to_id, 10000, 4, 70)
     train_size = int(VAL_SPLIT * len(static_dataset))
     val_size = len(static_dataset) - train_size
     # Split the dataset into training and validation sets

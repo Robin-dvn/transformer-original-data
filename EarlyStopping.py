@@ -1,3 +1,7 @@
+"""
+This module defines an early stopping handler for training neural networks.
+"""
+
 import numpy as np
 import torch
 import os
@@ -44,7 +48,7 @@ class EarlyStopping:
 
         if self.best_score is None:
             self.best_score = score
-            self.save_checkpoint(val_loss, model)
+            # self.save_checkpoint(val_loss, model)
         elif score < self.best_score + self.delta:
             self.counter += 1
             if self.verbose:
@@ -54,3 +58,16 @@ class EarlyStopping:
         else:
             self.best_score = score
             self.counter = 0
+
+    def save_checkpoint(self, val_loss, model):
+        """
+        Save the model checkpoint.
+
+        Args:
+            val_loss (float): Current validation loss.
+            model (torch.nn.Module): Model to save.
+        """
+        if self.verbose:
+            print(f'Saving model checkpoint with val_loss: {val_loss:.6f}')
+        torch.save(model.state_dict(), self.path)
+        self.val_loss_min = val_loss

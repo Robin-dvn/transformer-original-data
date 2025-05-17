@@ -1,3 +1,8 @@
+"""
+This module is the main entry point for running training and validation pipelines.
+It allows for testing with a basic configuration or running the full version with multiple configurations.
+"""
+
 from pipeline import train_generate_validate_pipeline
 
 if __name__ == "__main__":

@@ -1,3 +1,6 @@
+"""
+This module provides a class to visualize transformer model embeddings in 3D space.
+"""
 import torch
 import numpy as np
 import pandas as pd

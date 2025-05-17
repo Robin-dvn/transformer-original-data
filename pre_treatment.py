@@ -1,7 +1,102 @@
+"""
+This module provides functions and classes for preprocessing sequence files, extracting data, and calculating terminal fate.
+"""
+
 import re
 import os
 import pandas as pd
-from sequences import terminal_fate
+from typing import Dict, List, Tuple, Optional
+from enums import Observation
+
+
+TerminalFateData = Dict[Tuple[int, Observation], List[float]]
+
+class TerminalFate:
+    """
+    Class to deal with terminal fate probabilities
+    """
+    data: TerminalFateData
+    codes: Dict[Observation, int]
+
+    def __init__(self, data: Optional[TerminalFateData] = None):
+        if data is not None:
+            self.data = data
+        else:
+            self.data = {
+                (1, Observation.LARGE): [0.500, 0.167, 0.000, 0.333],
+                (1, Observation.MEDIUM): [0.000, 0.000, 0.000, 1.000],
+                (1, Observation.SMALL): [0.100, 0.100, 0.300, 0.500],
+                (1, Observation.FLORAL): [0.100, 0.300, 0.600, 0.000],
+                (2, Observation.LARGE): [0.246, 0.185, 0.000, 0.569],
+                (2, Observation.MEDIUM): [0.016, 0.238, 0.032, 0.714],
+                (2, Observation.SMALL): [0.066, 0.067, 0.317, 0.550],
+                (2, Observation.FLORAL): [0.317, 0.250, 0.433, 0.000],
+                (3, Observation.LARGE): [0.351, 0.106, 0.010, 0.533],
+                (3, Observation.MEDIUM): [0.123, 0.148, 0.063, 0.666],
+                (3, Observation.SMALL): [0.015, 0.094, 0.453, 0.438],
+                (3, Observation.FLORAL): [0.182, 0.249, 0.569, 0.000],
+                (4, Observation.LARGE): [0.213, 0.082, 0.000, 0.705],
+                (4, Observation.MEDIUM): [0.027, 0.046, 0.016, 0.911],
+                (4, Observation.SMALL): [0.000, 0.024, 0.205, 0.771],
+                (4, Observation.FLORAL): [0.003, 0.413, 0.584, 0.000],
+                (5, Observation.LARGE): [0.100, 0.050, 0.000, 0.850],
+                (5, Observation.MEDIUM): [0.000, 0.020, 0.130, 0.850],
+                (5, Observation.SMALL): [0.000, 0.000, 0.375, 0.625],
+                (5, Observation.FLORAL): [0.008, 0.325, 0.667, 0.000],
+                (6, Observation.LARGE): [0.000, 0.100, 0.000, 0.900],
+                (6, Observation.MEDIUM): [0.000, 0.050, 0.050, 0.900],
+                (6, Observation.SMALL): [0.000, 0.000, 0.350, 0.650],
+                (6, Observation.FLORAL): [0.000, 0.200, 0.800, 0.000],
+            }
+        self.codes = {
+            Observation.LARGE: 0,
+            Observation.MEDIUM: 1,
+            Observation.SMALL: 2,
+            Observation.FLORAL: 3,
+        }
+
+    def get_data_terminal_fate(self, year_no: int, code: Observation) -> List[float]:
+        if year_no == 0:
+            year_no = 1
+        elif year_no < 0 or year_no > 6:
+            year_no = 6
+        if code in self.codes.keys():
+            return self.data[(year_no, code)]
+        else:
+            raise ValueError(f"code must be in {self.codes.keys()}. {code} provided")
+
+def _non_parametric_distribution(pdf):
+    """Returns the index(x) at which the PDF(x) reaches random value in [0,1]"""
+    import random
+    r = random.random()
+    s = 0
+    for i, p in enumerate(pdf, 1):
+        s += p
+        if r <= s:
+            return i
+    return len(pdf)
+
+def terminal_fate(
+    year_no: int,
+    observation: Observation,
+    data_terminal_fate: Optional[TerminalFateData] = None,
+) -> Observation:
+    """This function returns a type of metamer (large, short, ...)
+    :param year_no: is an int starting from 0 for the 1st year of the simulation
+    :param observation: is a string. ['large', 'medium','small', 'floral'].
+    """
+    d = TerminalFate(data_terminal_fate)
+    data = d.get_data_terminal_fate(year_no, observation)
+    index = _non_parametric_distribution(data)
+    if index == 1:
+        return Observation.LARGE
+    if index == 2:
+        return Observation.MEDIUM
+    if index == 3:
+        return Observation.SMALL
+    if index == 4:
+        return Observation.FLORAL
+    raise ValueError(f"Unknown index {index}")
 
 
 def extract_sequences_to_df(input_file):

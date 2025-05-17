@@ -1,3 +1,7 @@
+"""
+This module provides a SimpleValidator class for comparing sequence datasets from different sources.
+It includes methods for statistical analysis and visualization of sequence properties.
+"""
 import pandas as pd
 import numpy as np
 import plotly.express as px
