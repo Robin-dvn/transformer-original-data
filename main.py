@@ -7,7 +7,7 @@ if __name__ == "__main__":
     if test:
         # Configuration de base pour test
         configs = [(15, 32, 1024)]  # Uniquement la première configuration pour le test
-        nb_epochs = 4000 # Réduit à 1 epoch pour le test
+        nb_epochs = 1 # Réduit à 1 epoch pour le test
         sync =False
         print("=== Mode Test ===")
     else:
@@ -44,7 +44,7 @@ if __name__ == "__main__":
                 'name': 'None',
                 'params': {}
             },
-            'continue_training': True,
+            'continue_training': False,
             'checkpoint_path' :'experiments/DO_NBL-15_DM-32_DFF-1024_TS-20250422-134740/model_state.pth',
             'auto_precision': False,
             'graph_name': f"DO_NBL-{nb_layers}_DM-{d_model}_DFF-{dim_feedforward}_baseline"
@@ -52,6 +52,8 @@ if __name__ == "__main__":
         #Essai baseline
         print(f"=== {'Test' if test else 'Essai'} baseline ===")
         validator_baseline = train_generate_validate_pipeline(config_dict,sync_wandb=sync)
+
+        ################## Exemples d'entrainements #####################
 
         # # Essai cyclical learning rate
         # config_cyclical = config_dict.copy()
