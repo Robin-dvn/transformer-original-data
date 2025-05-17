@@ -187,12 +187,12 @@ Le fichier `main.py` orchestre l'entraînement du modèle transformeur et la gé
     -   Utilise `EarlyStopping` pour arrêter l'entraînement si la perte sur le jeu de validation ne s'améliore plus.
     -   Sauvegarde les poids du meilleur modèle.
 -   **Génération**:
-    -   Charge les poids du meilleur modèle entraîné.
+    -   Charge les poids du modèle entraîné.
     -   Appelle la fonction `generate_sequences` (de `pipeline.py`) pour produire un nouveau jeu de données de séquences.
     -   Les séquences générées sont sauvegardées dans un fichier CSV.
 
 ## Comment Utiliser
-
+<!--  -->
 1.  **Préparer l'environnement**: 
     -   Assurez-vous d'avoir Python installé sur votre système.
     -   Ce projet utilise `uv` comme gestionnaire de paquets et d'environnement virtuel. Si vous ne l'avez pas, installez `uv` en suivant les instructions sur [https://github.com/astral-sh/uv](https://github.com/astral-sh/uv).
@@ -207,7 +207,7 @@ Le fichier `main.py` orchestre l'entraînement du modèle transformeur et la gé
     ```bash
     python pre_treatment.py
     ```
-3.  **Entraînement du Transformeur (Optionnel)**:
+3.  **Entraînement du Transformeur**:
     -   Modifiez les configurations dans `main.py` si nécessaire.
     -   Exécutez `main.py` pour entraîner un nouveau modèle transformeur et générer des séquences.
     ```bash
